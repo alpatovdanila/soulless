@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<title>Soulless — Prototype Hub</title>
+<style>
+  html,body{margin:0;height:100%}
+  body{font-family:system-ui,sans-serif;background:#0f1117;color:#e8eaf0}
+  .wrap{max-width:640px;margin:0 auto;padding:32px 16px;padding-top:calc(32px + env(safe-area-inset-top))}
+  h1{font-size:1.6rem;margin:0 0 4px}
+  p.sub{color:#8b93a7;margin:0 0 24px}
+  a.card{display:block;background:#1a1e28;border:1px solid #2a3040;border-radius:12px;padding:16px 20px;margin-bottom:12px;text-decoration:none;color:inherit;transition:transform .1s,border-color .1s}
+  a.card:hover{transform:translateY(-2px);border-color:#4f7cff}
+  .card b{font-size:1.1rem}
+  .card span{display:block;color:#8b93a7;font-size:.9rem;margin-top:4px}
+  .badge{float:right;font-size:.75rem;background:#2a3040;border-radius:20px;padding:3px 10px;color:#aab3c7}
+  #player{position:fixed;inset:0;display:none;background:#0f1117;z-index:10}
+  #player.open{display:block}
+  #frame{width:100%;height:100dvh;border:0;display:block}
+  #hubBtn{position:fixed;top:calc(6px + env(safe-area-inset-top));left:6px;z-index:11;width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(15,17,23,.55);color:#e8eaf0;font-size:17px;line-height:32px;text-align:center;cursor:pointer;backdrop-filter:blur(4px);display:none;padding:0}
+  #player.open ~ #hubBtn{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>💸 Soulless — Prototype Hub</h1>
+  <p class="sub">5 playable prototypes · simulated monetization · pick your winner</p>
+  <a class="card" href="games/01-cosmic-crush/index.html"><span class="badge">physics merge</span><b>🪐 Cosmic Crush</b><span>Drop space rocks, merge to the Sun. Suika-like.</span></a>
+  <a class="card" href="games/02-dig-inc/index.html"><span class="badge">idle tycoon</span><b>⛏️ Dig Inc.</b><span>Tap, hire managers, prestige. Numbers go up.</span></a>
+  <a class="card" href="games/03-hookd/index.html"><span class="badge">skill casual</span><b>🎣 Hook'd</b><span>Cast deep, reel up a fortune. Tiny Fishing-like.</span></a>
+  <a class="card" href="games/04-peggy-bank/index.html"><span class="badge">idle plinko</span><b>🟡 Peggy Bank</b><span>Balls rain through pegs into money. Hypnotic.</span></a>
+  <a class="card" href="games/05-brick-empire/index.html"><span class="badge">idle breakout</span><b>🧱 Brick Empire</b><span>Click bricks, buy immortal balls. Idle Breakout-like.</span></a>
+</div>
+
+<div id="player"><iframe id="frame" title="game"></iframe></div>
+<button id="hubBtn" aria-label="Back to hub">⌂</button>
+
+<script>
+var player=document.getElementById('player'),frame=document.getElementById('frame');
+function openGame(url,push){
+  frame.src=url;player.classList.add('open');
+  if(push)history.pushState({game:url},'', '#'+url);
+}
+function closeGame(){player.classList.remove('open');frame.src='about:blank';}
+document.querySelectorAll('a.card').forEach(function(a){
+  a.addEventListener('click',function(e){e.preventDefault();openGame(a.getAttribute('href'),true);});
+});
+document.getElementById('hubBtn').addEventListener('click',function(){history.back();});
+window.addEventListener('popstate',function(){
+  if(location.hash.slice(1)) openGame(location.hash.slice(1),false); else closeGame();
+});
+if(location.hash.slice(1)) openGame(location.hash.slice(1),false);
+</script>
+</body>
+</html>

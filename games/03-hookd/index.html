@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Hook'd</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; overflow:hidden; background:#0a2a45; font-family:system-ui,-apple-system,sans-serif; touch-action:none; user-select:none; -webkit-user-select:none; }
+  #c { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .hud { position:absolute; z-index:5; color:#fff; }
+  #topbar { top:0; left:0; right:0; padding:6px 8px; display:flex; align-items:center; gap:8px; background:linear-gradient(#0008,#0000); pointer-events:none; }
+  #topbar > * { pointer-events:auto; }
+  #titlebox { line-height:1.1; margin-right:auto; }
+  #titlebox b { font-size:16px; }
+  #titlebox small { font-size:9px; opacity:.75; display:block; }
+  .pill { background:#0009; border:1px solid #ffffff2a; border-radius:14px; padding:4px 10px; font-size:13px; font-weight:700; white-space:nowrap; }
+  .ibtn { background:#0009; border:1px solid #ffffff2a; border-radius:10px; color:#fff; font-size:15px; padding:4px 8px; cursor:pointer; }
+  .ibtn:active { transform:scale(.93); }
+  #money.pop, #gems.pop { animation:pop .3s; }
+  @keyframes pop { 40% { transform:scale(1.25); color:#ffe45c; } }
+  #hint { top:64px; left:0; right:0; text-align:center; font-size:13px; text-shadow:0 1px 3px #000; opacity:.9; pointer-events:none; }
+  #toasts { top:96px; left:0; right:0; display:flex; flex-direction:column; align-items:center; gap:4px; pointer-events:none; }
+  .toast { background:#123a5cdd; border:1px solid #6cf3; color:#fff; border-radius:16px; padding:6px 14px; font-size:13px; animation:toastin 3.2s forwards; }
+  @keyframes toastin { 0%{opacity:0;transform:translateY(-8px)} 8%{opacity:1;transform:none} 85%{opacity:1} 100%{opacity:0} }
+  #bottombar { bottom:0; left:0; right:0; padding:6px; background:linear-gradient(#0000,#000a 60%); }
+  #adboost { display:block; margin:0 auto 6px; background:#7c3aed; border:1px solid #c4b5fd66; color:#fff; border-radius:10px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; }
+  #adboost.ready { background:#166534; }
+  #upgs { display:flex; gap:5px; justify-content:center; }
+  .upg { flex:1; max-width:120px; background:#12395cee; border:1px solid #4aa3ff44; border-radius:10px; color:#fff; padding:5px 4px; font-size:11px; cursor:pointer; text-align:center; line-height:1.25; }
+  .upg .nm { font-weight:700; font-size:11px; }
+  .upg .cost { color:#7fdc7f; font-weight:700; }
+  .upg .eta { font-size:9px; opacity:.65; }
+  .upg:disabled { opacity:.5; }
+  .upg:not(:disabled):active { transform:scale(.95); }
+  .upg.afford { border-color:#7fdc7f; box-shadow:0 0 8px #7fdc7f55; }
+  #payout { position:absolute; z-index:8; left:50%; top:32%; transform:translate(-50%,-50%); background:#0b2c4aee; border:2px solid #ffd75c88; border-radius:14px; padding:14px 22px; color:#fff; text-align:center; display:none; min-width:210px; }
+  #payout h3 { font-size:14px; color:#ffd75c; margin-bottom:4px; }
+  #payTotal { font-size:26px; font-weight:800; color:#7fdc7f; }
+  #payFish { font-size:12px; opacity:.85; min-height:16px; margin:2px 0 8px; }
+  #payout button { margin:2px 3px; }
+  .bigbtn { background:#1e6f3e; border:1px solid #7fdc7f88; color:#fff; border-radius:9px; padding:7px 14px; font-size:13px; font-weight:700; cursor:pointer; }
+  .bigbtn.ad { background:#7c3aed; border-color:#c4b5fd88; }
+  .modal { position:absolute; z-index:20; inset:0; background:#000a; display:none; align-items:center; justify-content:center; }
+  .modal .box { background:#0d2f4f; border:1px solid #4aa3ff55; border-radius:14px; color:#fff; padding:16px; width:min(92vw,360px); max-height:80vh; overflow-y:auto; }
+  .box h2 { font-size:16px; margin-bottom:10px; }
+  .shoprow { display:flex; align-items:center; justify-content:space-between; gap:8px; background:#ffffff10; border-radius:9px; padding:8px 10px; margin-bottom:7px; font-size:13px; }
+  .shoprow small { display:block; opacity:.7; font-size:10px; }
+  .buybtn { background:#2563eb; border:none; color:#fff; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .buybtn.gem { background:#7c3aed; }
+  .buybtn:disabled { background:#555; cursor:default; }
+  .closex { float:right; background:none; border:none; color:#fff; font-size:18px; cursor:pointer; }
+  #adoverlay { position:absolute; z-index:30; inset:0; background:#111; display:none; flex-direction:column; align-items:center; justify-content:center; color:#fff; text-align:center; }
+  #adoverlay .fakead { width:min(80vw,300px); height:180px; border-radius:12px; background:linear-gradient(135deg,#f43f5e,#f59e0b,#8b5cf6); display:flex; align-items:center; justify-content:center; font-size:40px; margin-bottom:14px; animation:adpulse 1.2s infinite alternate; }
+  @keyframes adpulse { to { filter:hue-rotate(50deg); } }
+  #adoverlay p { font-size:14px; opacity:.85; }
+  #adskip { margin-top:14px; }
+  #dash { position:absolute; z-index:15; top:52px; right:6px; background:#052038f2; border:1px solid #ffd75c66; border-radius:10px; color:#fff; padding:10px 12px; font-size:12px; display:none; min-width:200px; }
+  #dash h3 { color:#ffd75c; font-size:13px; margin-bottom:6px; }
+  #dash table { width:100%; border-collapse:collapse; }
+  #dash td { padding:1px 0; }
+  #dash td:last-child { text-align:right; font-weight:700; }
+  #dash .rev { color:#7fdc7f; }
+  #collgrid { display:grid; grid-template-columns:1fr 1fr; gap:5px; font-size:12px; }
+  .spec { background:#ffffff0e; border-radius:8px; padding:5px 8px; }
+  .spec.unk { opacity:.4; }
+  #footer { position:absolute; z-index:4; bottom:64px; right:6px; font-size:9px; color:#fff8; background:#0007; padding:2px 7px; border-radius:8px; pointer-events:none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hud" id="topbar">
+  <div id="titlebox"><b>🎣 Hook'd</b><small>Cast deep, dodge going down, catch coming up, get rich.</small></div>
+  <span class="pill" id="money">$0</span>
+  <span class="pill" id="gems">💎 0</span>
+  <button class="ibtn" id="dailyBtn" title="Daily bonus">🎁</button>
+  <button class="ibtn" id="collBtn" title="Collection">📖</button>
+  <button class="ibtn" id="shopBtn" title="Shop">🛒</button>
+  <button class="ibtn" id="dashBtn" title="Monetization dashboard">💰</button>
+  <button class="ibtn" id="muteBtn" title="Mute">🔊</button>
+</div>
+<div class="hud" id="hint">Tap water to cast — steer with drag: dodge fish going ⬇, catch them coming ⬆</div>
+<div class="hud" id="toasts"></div>
+
+<div id="payout">
+  <h3 id="payTitle">Catch sold!</h3>
+  <div id="payTotal">+$0</div>
+  <div id="payFish"></div>
+  <button class="bigbtn ad" id="pay3x" style="display:none">▶ 3x sale</button>
+  <button class="bigbtn" id="payOk">Continue</button>
+</div>
+
+<div class="hud" id="bottombar">
+  <button id="adboost">▶ Instant depth boost (+50% one cast)</button>
+  <div id="upgs"></div>
+</div>
+<div id="footer">PROTOTYPE — simulated monetization</div>
+
+<div id="dash">
+  <h3>💰 Monetization</h3>
+  <table>
+    <tr><td>Session length</td><td id="dSess">0:00</td></tr>
+    <tr><td>Rewarded imps</td><td id="dRew">0</td></tr>
+    <tr><td>Interstitial imps</td><td id="dInt">0</td></tr>
+    <tr><td>Ad revenue (sim)</td><td class="rev" id="dAdRev">$0.000</td></tr>
+    <tr><td>IAP revenue (sim)</td><td class="rev" id="dIap">$0.00</td></tr>
+    <tr><td>Total (sim)</td><td class="rev" id="dTot">$0.00</td></tr>
+  </table>
+  <div style="font-size:9px;opacity:.6;margin-top:6px">eCPM: rewarded $12 / interstitial $6.<br>All transactions simulated — nothing is real.</div>
+</div>
+
+<div class="modal" id="shopModal"><div class="box">
+  <button class="closex" data-close="shopModal">✕</button>
+  <h2>🛒 Shop <small style="opacity:.6;font-size:10px">(simulated purchases)</small></h2>
+  <div class="shoprow"><span>💎 20 gems<small>Starter pack</small></span><button class="buybtn" data-iap="1.99" data-gems="20">$1.99</button></div>
+  <div class="shoprow"><span>💎 60 gems<small>Value pack</small></span><button class="buybtn" data-iap="4.99" data-gems="60">$4.99</button></div>
+  <div class="shoprow"><span>💎 150 gems<small>Whale pack</small></span><button class="buybtn" data-iap="9.99" data-gems="150">$9.99</button></div>
+  <div class="shoprow"><span>🚫 Remove Ads<small>No more interstitials</small></span><button class="buybtn" id="removeAdsBtn" data-iap="2.99">$2.99</button></div>
+  <div class="shoprow"><span>🪝 Golden Hook<small>+1 hook capacity, forever</small></span><button class="buybtn gem" id="goldHookBtn">25 💎</button></div>
+  <div class="shoprow"><span>✨ Value Booster<small>+50% sale value, forever</small></span><button class="buybtn gem" id="valBoostBtn">40 💎</button></div>
+</div></div>
+
+<div class="modal" id="collModal"><div class="box">
+  <button class="closex" data-close="collModal">✕</button>
+  <h2>📖 Collection <span id="collCount" style="font-size:12px;opacity:.7"></span></h2>
+  <div id="collgrid"></div>
+</div></div>
+
+<div class="modal" id="offlineModal"><div class="box" style="text-align:center">
+  <h2>🪤 Fish trap report</h2>
+  <p style="font-size:14px;margin-bottom:12px">While you were away your trap earned<br><b style="font-size:22px;color:#7fdc7f" id="offAmt">$0</b></p>
+  <button class="bigbtn ad" id="offDouble">▶ Double offline earnings</button>
+  <button class="bigbtn" id="offCollect">Collect</button>
+</div></div>
+
+<div id="adoverlay">
+  <div class="fakead" id="adEmoji">🐠</div>
+  <h2 id="adLabel">Simulated Ad</h2>
+  <p id="adCount">5s</p>
+  <button class="bigbtn" id="adskip" style="visibility:hidden">Claim reward</button>
+</div>
+
+<script>
+'use strict';
+/* ============ helpers ============ */
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => v<a?a:v>b?b:v;
+const rnd = (a,b) => a + Math.random()*(b-a);
+const SUF = ['','K','M','B','T','Qa','Qi'];
+function fmt(n){
+  if (n < 1000) return (Math.round(n*10)/10 % 1 ? n.toFixed(1) : Math.round(n)+'');
+  let i = 0; while (n >= 1000 && i < SUF.length-1){ n /= 1000; i++; }
+  return (n >= 100 ? Math.round(n) : n.toFixed(1)) + SUF[i];
+}
+const fmtMoney = n => '$' + fmt(n);
+
+/* ============ data ============ */
+// band: {to, water, fish:[[name,color,size,vmin,vmax,speed]]}
+const BANDS = [
+  { to:160,  water:'#2e93c7', fish:[['Minnow','#bfe3f2',7,1,2,45],['Sardine','#d8e6ee',8,2,3,60]] },
+  { to:380,  water:'#1f74a8', fish:[['Perch','#8fd18a',10,4,7,55],['Mackerel','#7fb6d9',11,6,10,75]] },
+  { to:700,  water:'#175a8c', fish:[['Snapper','#e88a8a',13,12,20,65],['Pufferfish','#e8d08a',12,15,28,45]] },
+  { to:1150, water:'#0f416e', fish:[['Tuna','#6f8fb3',16,35,60,90],['Swordfish','#9fb6cc',18,50,90,110]] },
+  { to:1750, water:'#0a2e52', fish:[['Eel','#7fe0c0',15,100,160,70],['Anglerfish','#c9a1e8',15,120,200,55]] },
+  { to:2600, water:'#071f3a', fish:[['Vampire Squid','#d96a9e',17,300,500,60],['Ghost Shark','#b8c4d1',20,350,600,85]] },
+  { to:3700, water:'#041226', fish:[['Void Jelly','#8f7fff',18,900,1500,40],['Leviathan Fry','#5fd1ff',22,1000,1800,95]] },
+  { to:5200, water:'#020814', fish:[['Elder Kraken','#ff8f5f',24,2500,5000,70],['Abyss Dragon','#ffd75c',26,3000,6000,105]] },
+];
+const GOLD = ['Golden Fish','#ffd700',13,0,0,80]; // value = 10x band avg
+const ALL_SPECIES = BANDS.flatMap(b => b.fish.map(f => f[0])).concat([GOLD[0]]);
+
+const UPG = {
+  depth:{ nm:'⚓ Depth',    base:10,  mult:1.18, desc:l=>(150+55*l)+'m' },
+  cap:  { nm:'🪝 Capacity', base:15,  mult:1.18, desc:l=>(3+l)+' fish' },
+  val:  { nm:'💵 Value',    base:20,  mult:1.18, desc:l=>'×'+(1+0.2*l).toFixed(1) },
+  trap: { nm:'🪤 Trap',     base:250, mult:1.6,  desc:l=>l?('$'+(0.6*l).toFixed(1)+'/s'):'idle $' },
+};
+const upgCost = k => Math.ceil(UPG[k].base * Math.pow(UPG[k].mult, S.lv[k]));
+
+/* ============ state / save ============ */
+const KEY = 'hookd-save-v1';
+let S = {
+  money:0, gems:0, lv:{depth:0,cap:0,val:0,trap:0},
+  seen:{}, casts:0, removeAds:false, goldHook:false, valBoost:false,
+  rewImps:0, intImps:0, iapRev:0, daily:'', muted:false, last:Date.now(),
+};
+try { const d = JSON.parse(localStorage.getItem(KEY)); if (d) S = Object.assign(S, d, {lv:Object.assign(S.lv, d.lv)}); } catch(e){}
+function save(){ S.last = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} }
+setInterval(save, 3000);
+addEventListener('visibilitychange', save);
+
+const maxDepth = () => (150 + 55*S.lv.depth) * (boostArmed ? 1.5 : 1);
+const capacity = () => 3 + S.lv.cap + (S.goldHook ? 1 : 0);
+const valMult  = () => (1 + 0.2*S.lv.val) * (S.valBoost ? 1.5 : 1);
+const trapRate = () => 0.6 * S.lv.trap * (1 + 0.2*S.lv.val);
+
+/* ============ audio ============ */
+let AC = null;
+function ac(){ if (!AC) AC = new (window.AudioContext||window.webkitAudioContext)(); if (AC.state==='suspended') AC.resume(); return AC; }
+function beep(freq, dur=0.1, type='sine', vol=0.12, when=0, slide=0){
+  if (S.muted) return;
+  try {
+    const a = ac(), o = a.createOscillator(), g = a.createGain(), t = a.currentTime + when;
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,freq+slide), t+dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    o.connect(g).connect(a.destination); o.start(t); o.stop(t+dur+0.02);
+  } catch(e){}
+}
+const sfx = {
+  cast:   () => beep(500,0.35,'sine',0.1,0,-380),
+  hook:   () => { beep(220,0.08,'square',0.1); beep(320,0.06,'square',0.08,0.06); },
+  chach:  () => { beep(1318,0.07,'triangle',0.12); beep(1760,0.12,'triangle',0.12,0.06); },
+  buy:    () => [523,659,784,1047].forEach((f,i)=>beep(f,0.09,'triangle',0.1,i*0.06)),
+  gold:   () => [880,1108,1318,1760,2093].forEach((f,i)=>beep(f,0.1,'sine',0.1,i*0.05)),
+  err:    () => beep(120,0.18,'sawtooth',0.1),
+  splash: () => beep(900,0.2,'sine',0.08,0,-700),
+};
+
+/* ============ canvas ============ */
+const cv = $('c'), cx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize(){
+  DPR = Math.min(devicePixelRatio||1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*DPR; cv.height = H*DPR;
+  cx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize', resize); resize();
+
+/* ============ game objects ============ */
+let phase = 'IDLE'; // IDLE | DROP | REEL | PAYOUT
+let hook = { x:0, y:0, targetX:0 };
+let fishes = [], caught = [], particles = [];
+let camY = -120, shake = 0, castEarn = 6, boostArmed = false, tSurface = 0;
+const HOME = () => W/2;
+hook.x = hook.targetX = HOME();
+
+function spawnFish(){
+  fishes = [];
+  const reach = maxDepth() + 200;
+  let from = 0;
+  for (const b of BANDS){
+    if (from > reach) break;
+    const to = Math.min(b.to, reach);
+    const n = clamp(Math.round((to - from) / 45) + 4, 6, 16);
+    for (let i = 0; i < n; i++){
+      const spec = b.fish[Math.random()<0.5?0:1];
+      const golden = Math.random() < 0.04;
+      fishes.push({
+        x:rnd(0,W), y:rnd(from+22, to-12), dir:Math.random()<0.5?-1:1,
+        speed:rnd(0.8,1.25)*(golden?GOLD[5]:spec[5]), spec: golden?GOLD:spec,
+        golden, band:b, ph:rnd(0,7), caught:false,
+        val: golden ? Math.round(5*(spec[3]+spec[4])) : Math.round(rnd(spec[3],spec[4])),
+        size: golden?GOLD[2]:spec[2],
+      });
+    }
+    from = b.to;
+  }
+}
+
+/* ============ input ============ */
+let pointerDown = false;
+cv.addEventListener('pointerdown', e => {
+  pointerDown = true; hook.targetX = e.clientX; ac();
+  if (phase === 'IDLE') startCast();
+});
+addEventListener('pointermove', e => { if (pointerDown || e.pointerType==='mouse') hook.targetX = e.clientX; });
+addEventListener('pointerup', () => pointerDown = false);
+
+/* ============ cast flow ============ */
+function startCast(){
+  phase = 'DROP';
+  S.casts++;
+  hook.x = hook.targetX = HOME(); hook.y = 6;
+  caught = [];
+  spawnFish();
+  sfx.cast();
+  $('hint').style.display = 'none';
+  $('adboost').style.display = 'none';
+  $('adboost').textContent = '▶ Instant depth boost (+50% one cast)';
+  $('adboost').classList.remove('ready');
+}
+function startReel(){ phase = 'REEL'; }
+function catchFish(f){
+  if (caught.length >= capacity()) return;
+  f.caught = true; caught.push(f);
+  sfx.hook();
+  if (f.golden){ sfx.gold(); shake = 8; }
+  burst(hook.x, hook.y, f.golden ? '#ffd700' : '#bfe9ff', 10);
+  if (!S.seen[f.spec[0]]){
+    S.seen[f.spec[0]] = true;
+    toast('🆕 New species discovered: ' + f.spec[0] + '!');
+  }
+  if (caught.length >= capacity() && phase === 'DROP') startReel();
+}
+
+/* ============ payout ============ */
+let payQueue = [], payTotal = 0, payTimer = null, payDone = false;
+function surface(){
+  phase = 'PAYOUT';
+  boostArmed = false;
+  sfx.splash();
+  burst(hook.x, 4, '#cfeaff', 14);
+  if (!caught.length){
+    toast('Nothing hooked… try steering into fish on the way up!');
+    endPayout(); return;
+  }
+  payQueue = caught.map(f => ({ name:f.spec[0], val:Math.round(f.val * valMult()), golden:f.golden }));
+  payTotal = 0; payDone = false;
+  $('payTotal').textContent = '+$0';
+  $('payFish').textContent = '';
+  $('payTitle').textContent = 'Catch sold!';
+  $('pay3x').style.display = (S.casts % 3 === 0) ? '' : 'none';
+  $('payOk').style.display = 'none';
+  $('payout').style.display = 'block';
+  payTimer = setInterval(payTick, 220);
+}
+function payTick(){
+  const f = payQueue.shift();
+  if (!f){
+    clearInterval(payTimer); payDone = true;
+    castEarn = Math.max(1, payTotal);
+    $('payOk').style.display = '';
+    if (payTotal >= 100) shake = 6;
+    return;
+  }
+  payTotal += f.val;
+  addMoney(f.val);
+  sfx.chach();
+  if (f.golden){ addGems(1); toast('✨ Golden fish! +1 💎'); }
+  $('payTotal').textContent = '+' + fmtMoney(payTotal);
+  $('payFish').textContent = (f.golden?'✨ ':'') + f.name + '  +' + fmtMoney(f.val);
+  burst(HOME(), 30, '#ffd75c', 6);
+}
+function endPayout(){
+  clearInterval(payTimer);
+  $('payout').style.display = 'none';
+  phase = 'IDLE';
+  hook.x = hook.targetX = HOME(); hook.y = 0;
+  refreshUI();
+  if (S.casts % 5 === 0 && !S.removeAds) showInterstitial();
+  if (!boostArmed) $('adboost').style.display = '';
+}
+$('payOk').addEventListener('click', endPayout);
+$('pay3x').addEventListener('click', () => {
+  $('payout').style.display = 'none';
+  showRewarded('3x sale', () => {
+    // finish counting instantly, then triple: grant 2x extra of full total
+    while (payQueue.length) { const f = payQueue.shift(); payTotal += f.val; addMoney(f.val); }
+    clearInterval(payTimer); payDone = true;
+    const bonus = payTotal * 2;
+    addMoney(bonus);
+    payTotal *= 3;
+    castEarn = Math.max(1, payTotal);
+    $('payTitle').textContent = '3x sale!';
+    $('payTotal').textContent = '+' + fmtMoney(payTotal);
+    $('payFish').textContent = 'Ad bonus +' + fmtMoney(bonus);
+    $('pay3x').style.display = 'none';
+    $('payOk').style.display = '';
+    $('payout').style.display = 'block';
+    sfx.buy(); shake = 6;
+  }, () => { $('payout').style.display = 'block'; });
+});
+
+/* ============ money / gems ============ */
+function addMoney(n){
+  S.money += n;
+  const el = $('money'); el.textContent = fmtMoney(S.money);
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  refreshUpgs();
+}
+function addGems(n){
+  S.gems += n;
+  const el = $('gems'); el.textContent = '💎 ' + S.gems;
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+}
+
+/* ============ upgrades UI ============ */
+const upgBtns = {};
+for (const k of Object.keys(UPG)){
+  const b = document.createElement('button');
+  b.className = 'upg';
+  b.addEventListener('click', () => buyUpg(k));
+  $('upgs').appendChild(b);
+  upgBtns[k] = b;
+}
+function refreshUpgs(){
+  for (const k of Object.keys(UPG)){
+    const c = upgCost(k), b = upgBtns[k], afford = S.money >= c;
+    const casts = afford ? 0 : Math.ceil((c - S.money) / castEarn);
+    b.innerHTML = '<div class="nm">' + UPG[k].nm + ' <span style="opacity:.6">L' + S.lv[k] + '</span></div>'
+      + '<div>' + UPG[k].desc(S.lv[k]) + '</div>'
+      + '<div class="cost">' + fmtMoney(c) + '</div>'
+      + '<div class="eta">' + (afford ? 'BUY!' : '≈' + casts + ' cast' + (casts>1?'s':'')) + '</div>';
+    b.disabled = !afford;
+    b.classList.toggle('afford', afford);
+  }
+}
+function buyUpg(k){
+  const c = upgCost(k);
+  if (S.money < c) { sfx.err(); return; }
+  S.money -= c; S.lv[k]++;
+  $('money').textContent = fmtMoney(S.money);
+  sfx.buy();
+  burst(W/2, H-70, '#7fdc7f', 12, true);
+  if (k === 'depth'){
+    const band = BANDS.findIndex(b => 150 + 55*S.lv.depth <= b.to) + 1 || BANDS.length;
+    toast('⚓ Deeper! Now reaching band ' + band + ' (' + (150+55*S.lv.depth) + 'm)');
+  } else if (k === 'trap' && S.lv.trap === 1){
+    toast('🪤 Fish trap set — earns while you are away!');
+  }
+  refreshUI(); save();
+}
+
+/* ============ toasts / particles / floaties ============ */
+function toast(msg){
+  const d = document.createElement('div');
+  d.className = 'toast'; d.textContent = msg;
+  $('toasts').appendChild(d);
+  setTimeout(() => d.remove(), 3300);
+}
+function burst(x, y, color, n, screen){
+  for (let i = 0; i < n; i++)
+    particles.push({ x, y, vx:rnd(-90,90), vy:rnd(-140,20), life:rnd(0.4,0.9), t:0, color, screen });
+}
+
+/* ============ monetization: ad overlay ============ */
+let adTimer = null;
+function showAdOverlay(label, secs, onDone, skippable){
+  const ov = $('adoverlay');
+  ov.style.display = 'flex';
+  $('adLabel').textContent = label;
+  $('adEmoji').textContent = ['🐠','🦈','🐙','🦑','🐡'][Math.floor(Math.random()*5)];
+  const btn = $('adskip');
+  btn.style.visibility = 'hidden';
+  btn.textContent = skippable ? 'Skip ✕' : 'Claim reward';
+  let left = secs;
+  $('adCount').textContent = left + 's';
+  clearInterval(adTimer);
+  adTimer = setInterval(() => {
+    left--;
+    if (left > 0) $('adCount').textContent = left + 's';
+    else {
+      clearInterval(adTimer);
+      $('adCount').textContent = skippable ? 'You can skip now' : 'Reward ready!';
+      btn.style.visibility = 'visible';
+    }
+  }, 1000);
+  btn.onclick = () => { ov.style.display = 'none'; onDone(); };
+}
+function showRewarded(label, grant, onDismiss){
+  S.rewImps++; save();
+  showAdOverlay('Simulated Rewarded Ad — ' + label, 5, () => { grant(); if (onDismiss) onDismiss(); }, false);
+}
+// ponytail: onDismiss only used by 3x-sale to restore panel; others no-op
+function showInterstitial(){
+  S.intImps++; save();
+  showAdOverlay('Simulated Interstitial', 3, () => {}, true);
+}
+$('adboost').addEventListener('click', () => {
+  if (boostArmed) return;
+  showRewarded('Instant depth boost', () => {
+    boostArmed = true;
+    $('adboost').textContent = '⚡ Depth boost armed for next cast!';
+    $('adboost').classList.add('ready');
+    toast('⚡ Next cast reaches +50% depth');
+  });
+});
+
+/* ============ shop / IAP ============ */
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => $(b.dataset.close).style.display = 'none'));
+$('shopBtn').addEventListener('click', () => { refreshShop(); $('shopModal').style.display = 'flex'; });
+$('dashBtn').addEventListener('click', () => { const d = $('dash'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; });
+$('collBtn').addEventListener('click', () => { renderColl(); $('collModal').style.display = 'flex'; });
+$('muteBtn').addEventListener('click', () => { S.muted = !S.muted; $('muteBtn').textContent = S.muted ? '🔇' : '🔊'; save(); });
+$('muteBtn').textContent = S.muted ? '🔇' : '🔊';
+
+document.querySelectorAll('[data-gems]').forEach(b => b.addEventListener('click', () => {
+  if (!confirm('Simulated purchase — ' + b.textContent + ' for ' + b.dataset.gems + ' gems.\nNo real money involved. Confirm?')) return;
+  S.iapRev += +b.dataset.iap;
+  addGems(+b.dataset.gems);
+  sfx.buy(); toast('💎 +' + b.dataset.gems + ' gems (simulated purchase)'); save();
+}));
+$('removeAdsBtn').addEventListener('click', () => {
+  if (S.removeAds) return;
+  if (!confirm('Simulated purchase — Remove Ads for $2.99.\nNo real money involved. Confirm?')) return;
+  S.iapRev += 2.99; S.removeAds = true;
+  sfx.buy(); toast('🚫 Interstitial ads removed!'); refreshShop(); save();
+});
+$('goldHookBtn').addEventListener('click', () => {
+  if (S.goldHook) return;
+  if (S.gems < 25) { sfx.err(); toast('Not enough gems!'); return; }
+  S.gems -= 25; S.goldHook = true; addGems(0);
+  sfx.gold(); toast('🪝 Golden hook! +1 capacity forever'); refreshShop(); save();
+});
+$('valBoostBtn').addEventListener('click', () => {
+  if (S.valBoost) return;
+  if (S.gems < 40) { sfx.err(); toast('Not enough gems!'); return; }
+  S.gems -= 40; S.valBoost = true; addGems(0);
+  sfx.gold(); toast('✨ Value booster! +50% sale value forever'); refreshShop(); save();
+});
+function refreshShop(){
+  $('removeAdsBtn').disabled = S.removeAds; if (S.removeAds) $('removeAdsBtn').textContent = 'Owned';
+  $('goldHookBtn').disabled = S.goldHook;   if (S.goldHook) $('goldHookBtn').textContent = 'Owned';
+  $('valBoostBtn').disabled = S.valBoost;   if (S.valBoost) $('valBoostBtn').textContent = 'Owned';
+}
+
+/* ============ collection ============ */
+function renderColl(){
+  const g = $('collgrid'); g.innerHTML = '';
+  let n = 0;
+  for (const s of ALL_SPECIES){
+    const seen = !!S.seen[s]; if (seen) n++;
+    const d = document.createElement('div');
+    d.className = 'spec' + (seen ? '' : ' unk');
+    d.textContent = seen ? '🐟 ' + s : '❓ ???';
+    g.appendChild(d);
+  }
+  $('collCount').textContent = n + '/' + ALL_SPECIES.length;
+}
+
+/* ============ daily bonus ============ */
+function refreshDaily(){ $('dailyBtn').style.display = S.daily === new Date().toDateString() ? 'none' : ''; }
+$('dailyBtn').addEventListener('click', () => {
+  S.daily = new Date().toDateString();
+  const amt = Math.max(50, Math.ceil(upgCost('depth') * 0.6));
+  addMoney(amt); addGems(2);
+  sfx.buy(); burst(W/2, 60, '#ffd75c', 16, true);
+  toast('🎁 Daily bonus: +' + fmtMoney(amt) + ' and 2 💎');
+  refreshDaily(); save();
+});
+
+/* ============ offline earnings ============ */
+(function offline(){
+  const dt = Math.min((Date.now() - S.last) / 1000, 7200); // ponytail: 2h cap
+  const amt = Math.floor(trapRate() * dt);
+  if (amt < 1) return;
+  $('offAmt').textContent = fmtMoney(amt);
+  $('offlineModal').style.display = 'flex';
+  $('offCollect').onclick = () => { addMoney(amt); sfx.chach(); $('offlineModal').style.display = 'none'; };
+  $('offDouble').onclick = () => {
+    $('offlineModal').style.display = 'none';
+    showRewarded('Double offline earnings', () => { addMoney(amt*2); sfx.buy(); toast('🪤 Collected ' + fmtMoney(amt*2) + ' (2x)'); });
+  };
+})();
+
+/* ============ dashboard ============ */
+let sessionStart = Date.now();
+setInterval(() => {
+  const s = Math.floor((Date.now() - sessionStart) / 1000);
+  $('dSess').textContent = Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+  $('dRew').textContent = S.rewImps;
+  $('dInt').textContent = S.intImps;
+  const adRev = S.rewImps*0.012 + S.intImps*0.006;
+  $('dAdRev').textContent = '$' + adRev.toFixed(3);
+  $('dIap').textContent = '$' + S.iapRev.toFixed(2);
+  $('dTot').textContent = '$' + (adRev + S.iapRev).toFixed(2);
+}, 500);
+
+/* ============ drawing ============ */
+function waterColor(y){
+  let from = 0, prev = BANDS[0].water;
+  for (const b of BANDS){
+    if (y < b.to){
+      const t = (y - from) / (b.to - from);
+      return lerpColor(prev, b.water, clamp(t,0,1));
+    }
+    from = b.to; prev = b.water;
+  }
+  return BANDS[BANDS.length-1].water;
+}
+function lerpColor(a, b, t){
+  const pa = parseInt(a.slice(1),16), pb = parseInt(b.slice(1),16);
+  const r = ((pa>>16)&255) + (((pb>>16)&255)-((pa>>16)&255))*t;
+  const g = ((pa>>8)&255)  + (((pb>>8)&255)-((pa>>8)&255))*t;
+  const bl = (pa&255)      + ((pb&255)-(pa&255))*t;
+  return 'rgb(' + (r|0) + ',' + (g|0) + ',' + (bl|0) + ')';
+}
+function drawFish(f, t){
+  const s = f.size, wig = Math.sin(t*8 + f.ph) * 0.25;
+  cx.save();
+  cx.translate(f.x, f.y - camY);
+  cx.scale(f.dir, 1);
+  cx.rotate(wig * 0.15);
+  // body
+  cx.fillStyle = f.spec[1];
+  cx.beginPath(); cx.ellipse(0, 0, s, s*0.55, 0, 0, 7); cx.fill();
+  // tail
+  cx.beginPath();
+  cx.moveTo(-s*0.8, 0);
+  cx.lineTo(-s*1.5, -s*0.5 + wig*s);
+  cx.lineTo(-s*1.5,  s*0.5 + wig*s);
+  cx.closePath(); cx.fill();
+  // eye
+  cx.fillStyle = '#0b1e30';
+  cx.beginPath(); cx.arc(s*0.5, -s*0.12, Math.max(1.4, s*0.11), 0, 7); cx.fill();
+  if (f.golden){
+    cx.fillStyle = 'rgba(255,255,180,' + (0.5+0.5*Math.sin(t*10+f.ph)) + ')';
+    for (let i = 0; i < 3; i++){
+      const a = t*3 + f.ph + i*2.1;
+      cx.beginPath(); cx.arc(Math.cos(a)*s*1.3, Math.sin(a)*s*0.9, 1.6, 0, 7); cx.fill();
+    }
+  }
+  cx.restore();
+}
+
+/* ============ main loop ============ */
+let lastT = performance.now(), animT = 0;
+function frame(now){
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now; animT += dt;
+  update(dt);
+  draw(animT);
+  requestAnimationFrame(frame);
+}
+
+function update(dt){
+  // trap income (online)
+  if (S.lv.trap > 0 && phase === 'IDLE'){
+    trapAcc += trapRate() * dt;
+    if (trapAcc >= 1){ const g = Math.floor(trapAcc); trapAcc -= g; S.money += g; $('money').textContent = fmtMoney(S.money); }
+  }
+  // hook steering
+  if (phase === 'DROP' || phase === 'REEL'){
+    hook.x += clamp(hook.targetX - hook.x, -330*dt, 330*dt);
+    hook.x = clamp(hook.x, 10, W-10);
+  }
+  if (phase === 'DROP'){
+    hook.y += 170 * dt;
+    if (hook.y >= maxDepth()){ hook.y = maxDepth(); startReel(); }
+  } else if (phase === 'REEL'){
+    hook.y -= 130 * dt;
+    if (hook.y <= 0){ hook.y = 0; surface(); }
+  }
+  // fish
+  for (const f of fishes){
+    if (f.caught) continue;
+    f.x += f.dir * f.speed * dt;
+    if (f.x < -60) { f.x = W + 55; }
+    if (f.x > W + 60) { f.x = -55; }
+    f.y += Math.sin(animT*1.5 + f.ph) * 3 * dt;
+    if (phase === 'DROP' || phase === 'REEL'){
+      const dx = f.x - hook.x, dy = f.y - hook.y;
+      if (dx*dx + dy*dy < Math.pow(f.size*0.8 + 7, 2)){
+        if (phase === 'DROP'){ catchFish(f); if (phase === 'DROP') startReel(); } // hit on descent stops drop
+        else catchFish(f);
+      }
+    }
+  }
+  // camera
+  const targetCam = (phase === 'IDLE' || phase === 'PAYOUT') ? -120 : hook.y - H*0.38;
+  camY += (targetCam - camY) * Math.min(1, dt*6);
+  shake = Math.max(0, shake - dt*22);
+  // particles
+  for (let i = particles.length-1; i >= 0; i--){
+    const p = particles[i];
+    p.t += dt; p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 220*dt;
+    if (p.t > p.life) particles.splice(i,1);
+  }
+}
+let trapAcc = 0;
+
+function draw(t){
+  cx.save();
+  if (shake > 0) cx.translate(rnd(-shake,shake), rnd(-shake,shake));
+  // water gradient for current view
+  const topY = camY, botY = camY + H;
+  const grad = cx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, waterColor(Math.max(0, topY)));
+  grad.addColorStop(1, waterColor(Math.max(0, botY)));
+  cx.fillStyle = grad; cx.fillRect(0, 0, W, H);
+  // sky
+  if (topY < 0){
+    const skyH = -topY;
+    const sg = cx.createLinearGradient(0, 0, 0, skyH);
+    sg.addColorStop(0, '#7fc9f2'); sg.addColorStop(1, '#cfeeff');
+    cx.fillStyle = sg; cx.fillRect(0, 0, W, skyH);
+    // sun
+    cx.fillStyle = '#ffe9a0';
+    cx.beginPath(); cx.arc(W - 60, skyH*0.35, 22, 0, 7); cx.fill();
+    // surface wave line
+    cx.strokeStyle = '#e8f7ff'; cx.lineWidth = 2;
+    cx.beginPath();
+    for (let x = 0; x <= W; x += 8) cx.lineTo(x, skyH + Math.sin(x*0.05 + t*2.4)*2.5);
+    cx.stroke();
+    // boat
+    const bx = HOME(), by = skyH - 8;
+    cx.fillStyle = '#8a5a33';
+    cx.beginPath(); cx.moveTo(bx-38, by); cx.lineTo(bx+38, by); cx.lineTo(bx+26, by+14); cx.lineTo(bx-26, by+14); cx.closePath(); cx.fill();
+    cx.fillStyle = '#333';
+    cx.beginPath(); cx.arc(bx-8, by-13, 5, 0, 7); cx.fill();      // head
+    cx.fillRect(bx-11, by-9, 6, 10);                              // body
+    cx.strokeStyle = '#5a3a1a'; cx.lineWidth = 2.5;
+    cx.beginPath(); cx.moveTo(bx-6, by-6); cx.lineTo(bx+16, by-26); cx.stroke(); // rod
+  }
+  // band boundary labels
+  cx.font = '10px system-ui'; cx.textAlign = 'left';
+  let from = 0;
+  BANDS.forEach((b, i) => {
+    const sy = b.to - camY;
+    if (sy > -10 && sy < H+10 && b.to <= maxDepth()+250){
+      cx.strokeStyle = '#ffffff18'; cx.lineWidth = 1;
+      cx.beginPath(); cx.moveTo(0, sy); cx.lineTo(W, sy); cx.stroke();
+      cx.fillStyle = '#ffffff44';
+      cx.fillText(b.to + 'm — band ' + (i+2), 6, sy - 4);
+    }
+    from = b.to;
+  });
+  // max depth marker
+  if (phase === 'DROP' || phase === 'REEL'){
+    const my = maxDepth() - camY;
+    if (my > 0 && my < H){
+      cx.strokeStyle = '#ffd75c66'; cx.setLineDash([6,6]);
+      cx.beginPath(); cx.moveTo(0, my); cx.lineTo(W, my); cx.stroke();
+      cx.setLineDash([]);
+    }
+  }
+  // bubbles ambience
+  cx.fillStyle = '#ffffff22';
+  for (let i = 0; i < 12; i++){
+    const bx = (i*97 + t*20) % W;
+    const by = H - ((t*30 + i*130) % (H+40));
+    cx.beginPath(); cx.arc(bx, by, 2 + (i%3), 0, 7); cx.fill();
+  }
+  // fish
+  for (const f of fishes) if (!f.caught) drawFish(f, t);
+  // line + hook
+  {
+    const rodTipY = -34 - camY; // rod tip in screen coords (boat at surface)
+    cx.strokeStyle = '#ffffffaa'; cx.lineWidth = 1;
+    cx.beginPath(); cx.moveTo(HOME()+16, rodTipY); cx.lineTo(hook.x, hook.y - camY); cx.stroke();
+    // hook
+    const hy = hook.y - camY;
+    cx.strokeStyle = S.goldHook ? '#ffd700' : '#e8e8e8'; cx.lineWidth = 2.5;
+    cx.beginPath(); cx.arc(hook.x, hy + 5, 6, -0.4, 2.6); cx.stroke();
+    cx.beginPath(); cx.moveTo(hook.x, hy - 4); cx.lineTo(hook.x, hy + 2); cx.stroke();
+    // caught fish dangling
+    caught.forEach((f, i) => {
+      f.x = hook.x + Math.sin(t*6 + i*1.7) * 8;
+      f.y = hook.y + 14 + i*11;
+      drawFish(f, t);
+    });
+    // depth meter
+    if (phase === 'DROP' || phase === 'REEL'){
+      cx.fillStyle = '#ffffffcc'; cx.font = 'bold 12px system-ui'; cx.textAlign = 'left';
+      cx.fillText(Math.round(hook.y) + 'm ' + (phase==='DROP'?'⬇':'⬆') + ' ' + caught.length + '/' + capacity() + ' 🐟', hook.x + 14, hy - 8);
+    }
+  }
+  // particles
+  for (const p of particles){
+    cx.globalAlpha = 1 - p.t / p.life;
+    cx.fillStyle = p.color;
+    const py = p.screen ? p.y : p.y - camY;
+    cx.beginPath(); cx.arc(p.x, py, 3, 0, 7); cx.fill();
+  }
+  cx.globalAlpha = 1;
+  cx.restore();
+}
+
+/* ============ boot ============ */
+function refreshUI(){ refreshUpgs(); refreshDaily(); $('money').textContent = fmtMoney(S.money); $('gems').textContent = '💎 ' + S.gems; }
+refreshUI(); refreshShop();
+if (S.casts > 0) $('hint').style.display = 'none';
+spawnFish();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
