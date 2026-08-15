@@ -1,26 +1,34 @@
-# DD-01 — Cosmic Crush (Suika-like physics merge)
+# DD-01 v2 — Cosmic Crush (Suika-like physics merge) — BETA scope
 
-Folder: `games/01-cosmic-crush/index.html`. Follow `docs/DD-00-shared-spec.md`.
+Folder: `games/01-cosmic-crush/index.html` (upgrade the existing file — keep its physics core, it's good). Follow `docs/DD-00-shared-spec.md`. Goal alignment: maximize session addiction (combo/fever), retention (meta unlocks, missions), and rewarded-ad surface, while staying clip-able.
 
-## Pitch
-Drop space rocks into a jar. Two identical bodies touching merge into the next bigger one: Dust → Pebble → Asteroid → Comet → Moon → Planet → Gas Giant → Star → SUN. Overflow the jar = game over. Chase high score + the mythical Sun.
+## v2 Controls (MOBILE-FIRST — this is the #1 change)
+- **Touch**: press and drag ANYWHERE on the jar area → the pending piece follows finger X (piece hovers above the jar, never under the finger). Release → drop. While dragging, show a dashed vertical guide + landing preview shadow.
+- **Desktop**: mouse move aims, click drops (unchanged).
+- Drop cooldown ~0.35s. Drags starting on UI buttons don't aim.
+- Guide line + ghost outline of where the piece will rest (approx: straight down to first collision).
 
-## Core loop
-- Tap/click to drop the current body at cursor/finger x. Next-piece preview shown.
-- Simple 2D circle physics: gravity, restitution ~0.2, circle-circle collision with positional correction and impulse. Write it by hand (~80 lines) — no physics lib. Bodies are circles with radius by tier; sleep distant-stable bodies if perf needs it.
-- Merge: two same-tier circles in contact → new body at midpoint, next tier, score += tier value, chain combos multiply score. Merge = particle burst + pop sound + slight shake scaled by tier.
-- Danger line at top; crossing it for >2s = game over → score screen.
+## v2 Gameplay additions
+- **Chain combos** (exists, amplify): merges within 1.5s chain ×1, ×2, ×3… multiplier on score AND coins. On ≥×3: "COMBO ×N" banner, rising SFX pitch ladder, bigger shake.
+- **Fever meter**: every merge fills a meter (decays slowly). Full → FEVER MODE 10s: all scores ×2, background shifts hue, particle density up, tempo-up jingle. Meter UI is prominent. Rewarded ad: "▶ Extend fever +8s" appears once per fever.
+- **Milestone slow-mo**: first-ever creation of Star or SUN → 0.5s slow-mo + radial burst + banner. (Clip moment.)
+- **Danger feedback**: within 80px of line → red vignette pulse + heartbeat SFX, intensity scales.
+- **Power-ups** (consumables, bottom bar, usable mid-run): 💣 Bomb (clear 5 smallest — exists, surface it better), 🔄 Swap (reroll current+next piece), 🫙 Shake (physics nudge settles pile). Earn via gems or "▶ watch ad for 1 free power-up" (1/run).
 
-## Progression / addiction
-- High score + best-body-reached persisted. Evolution chart (silhouettes of undiscovered tiers).
-- Score combos; "New discovery!" banner first time each tier is made.
-- Coins earned per merge → cosmetic jar themes in shop (2-3 cheap ones) to give coins a sink.
+## v2 Meta progression (retention)
+- **Missions**: 3 active (e.g. "Make 2 Moons", "Score 5,000 in one run", "Chain a ×4 combo"). Reward: gems/coins. Refresh a slot on completion (pool of ~10 templates, difficulty scales with stats).
+- **Unlock shop** (coins): jar themes (3+), piece skin packs (planets/fruit/emoji — same physics, cosmetic), each with preview. Gems: exclusive skin + permanent "+1 starting luck" (first 10 drops skew smaller).
+- **Trophies row**: best score, best body, total merges, max combo — visible on game-over screen.
+- **Stats-driven bragging**: game-over screen = shareable-looking scorecard (big score, tier icons, combo max).
 
-## Monetization (per shared spec)
-- Rewarded: "Continue?" on game over — watch ad to remove top 30% of pieces once per run. Also "2x score for 60s" button.
-- Interstitial after every 2nd game over.
-- IAP: gems buy jar themes + a "bomb" consumable (clears 5 smallest bodies).
+## Monetization (keep all v1 + add)
+- Rewarded: Continue (clear top 30%, once/run) · 2x score 60s · Extend fever · Free power-up.
+- Interstitial: every 2nd game over (skippable 3s; suppressed by Remove Ads).
+- IAP sim: gem packs, Remove Ads, gem skin, starting luck.
+- 💰 dashboard: keep, include per-placement impression counts.
 
-## Tuning
-- Jar ~ 9:14 aspect, 9 tiers, radii ~ 14,20,27,36,47,60,76,95,118 (scale to canvas). Spawn tiers limited to first 5.
-- Physics stable: fixed timestep substeps, cap velocity.
+## Quality bar for "beta"
+- No physics regressions: pile stays stable, merges reliable, 60fps with 80+ bodies.
+- Every new system has visible UI affordance and a first-time one-line tooltip.
+- Save migration: bump save key to `cc01_save_v2`; ignore old save.
+- Balance: fever reachable ~1/2min of decent play; mission #1 completable in first session; SUN still aspirational.
