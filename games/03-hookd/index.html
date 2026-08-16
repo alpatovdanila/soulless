@@ -412,9 +412,9 @@ const BANDS = [
   { to:250*PX_PER_M, water:'#071f3a', fish:[['Vampire Squid','#d96a9e',40,300,500,60,'skittish'],['Ghost Shark','#b8c4d1',60,350,600,85,'cruiser'],['Phantom Eel','#d8e8ff',44,320,520,65,'lurker']] },
   { to:450*PX_PER_M, water:'#041226', fish:[['Void Jelly','#8f7fff',40,900,1500,40,'drifter'],['Leviathan Fry','#5fd1ff',50,1000,1800,95,'darter']] },
   { to:800*PX_PER_M, water:'#020814', fish:[['Elder Kraken','#ff8f5f',90,2500,5000,70,'lurker'],['Abyss Dragon','#ffd75c',110,3000,6000,105,'cruiser']] },
-  { to:1500*PX_PER_M, water:'#01060e', fish:[['Gulper Eel','#7fa8ff',56,7000,12000,80,'darter'],['Abyss Watcher','#9fe8ff',70,8000,14000,50,'lurker'],['Viperfish','#b8ffd1',34,6500,11000,60,'school'],['Ghost Ray','#d8d8ff',80,9000,16000,45,'cruiser']] },
-  { to:3000*PX_PER_M, water:'#000309', fish:[['Voidmaw','#c9b8ff',120,20000,38000,70,'cruiser'],['Sunless King','#ffd0a8',96,24000,45000,55,'lurker'],['Crystal Crab','#aef4ff',60,18000,32000,25,'drifter'],['Eldritch Angler','#ff9fd0',85,26000,48000,50,'lurker']] },
-  { to:99000*PX_PER_M, water:'#000000', fish:[['Nameless Thing','#e8f4ff',140,60000,110000,60,'cruiser'],['The Deep One','#a8ffd8',120,70000,130000,45,'lurker'],['Leviathan Spawn','#ffb37f',60,80000,150000,55,'school'],['Eye of the Abyss','#ffffff',95,90000,170000,30,'drifter']] },
+  { to:1500*PX_PER_M, water:'#01060e', fish:[['Gulper Eel','#7fa8ff',56,7000,12000,80,'darter'],['Abyss Watcher','#9fe8ff',70,8000,14000,50,'lurker'],['Viperfish','#b8ffd1',34,6500,11000,60,'school'],['Ghost Ray','#d8d8ff',80,9000,16000,45,'cruiser'],['Ghost Octopus','#b48fff',52,8000,14000,22,'drifter']] },
+  { to:3000*PX_PER_M, water:'#000309', fish:[['Voidmaw','#c9b8ff',120,20000,38000,70,'cruiser'],['Sunless King','#ffd0a8',96,24000,45000,55,'lurker'],['Crystal Crab','#aef4ff',60,18000,32000,25,'drifter'],['Eldritch Angler','#ff9fd0',85,26000,48000,50,'lurker'],['Void Squid','#ff7fe8',66,22000,40000,26,'drifter']] },
+  { to:99000*PX_PER_M, water:'#000000', fish:[['Nameless Thing','#e8f4ff',140,60000,110000,60,'cruiser'],['The Deep One','#a8ffd8',120,70000,130000,45,'lurker'],['Leviathan Spawn','#ffb37f',60,80000,150000,55,'school'],['Eye of the Abyss','#ffffff',95,90000,170000,30,'drifter'],['Star Child','#7fffd8',80,85000,160000,20,'drifter']] },
 ];
 const ARTS = [['Amphora','🏺'],['Royal Crown','👑'],['Stone Idol','🗿'],['Ancient Urn','⚱️']];
 const ARTS_DEEP = [['Ship Bell','🔔'],['Cursed Compass','🧭'],['Message Bottle','🍾'],['Ancient Anchor','⚓'],['Abyssal Pearl','🦪']];   // sunken relics, deep spawns only
@@ -422,8 +422,8 @@ const ARTS_DEEP = [['Ship Bell','🔔'],['Cursed Compass','🧭'],['Message Bott
 const WEIRD = {
   'Anglerfish':'bio angler', 'Void Jelly':'bio', 'Lanternfish':'bio', 'Leviathan Fry':'bio',
   'Ghost Shark':'ghost', 'Phantom Eel':'ghost bio',
-  'Gulper Eel':'bio', 'Abyss Watcher':'bio', 'Voidmaw':'ghost bio',
-  'Sunless King':'bio', 'Nameless Thing':'ghost bio', 'The Deep One':'bio',
+  'Gulper Eel':'bio eyes', 'Voidmaw':'ghost bio',
+  'Sunless King':'bio eyes', 'Nameless Thing':'ghost bio eyes', 'The Deep One':'bio eyes', 'Ghost Octopus':'ghost bio', 'Void Squid':'bio', 'Star Child':'ghost bio', 'Abyss Watcher':'bio eyes',
   'Viperfish':'bio', 'Ghost Ray':'ghost', 'Crystal Crab':'bio',
   'Eldritch Angler':'bio angler', 'Leviathan Spawn':'bio', 'Eye of the Abyss':'ghost bio',
 };
@@ -966,6 +966,7 @@ function mkFish(spec, from, to, golden, bi){
   if (wf.includes('bio')) f.bio = true;
   if (wf.includes('ghost')) f.ghost = true;
   if (wf.includes('angler')) f.angler = true;
+  if (wf.includes('eyes')) f.eyes = true;
   if (arch === 'lurker'){ f.y = to - rnd(12, Math.max(20,(to-from)*0.25)); f.home = f.y; } // hugs band bottom
   if (arch === 'school'){
     // one shared anchor per species per band — loose cohesion, no boids
@@ -1936,6 +1937,7 @@ function drawFish(f, t){
   cx.scale(f.dir, 1);
   cx.rotate(wig * 0.15);
   if (f.ghost) cx.globalAlpha = 0.45;                 // ghostly translucent species
+  if (f.eyes){ cx.drawImage(SPR.glowCyan, s*0.42, -s*0.3, 16, 16); cx.fillStyle='#ffffff'; cx.beginPath(); cx.arc(s*0.5, -s*0.22, 2.2, 0, 7); cx.fill(); } // glowing alien eyes
   drawFishParts(cx, s, f.color, f.dark || '#0a2438', wig);
   if (f.angler){
     // the anglerfish's lure actually glows: stalk + bulb
