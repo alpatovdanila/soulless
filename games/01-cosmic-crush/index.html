@@ -322,13 +322,63 @@ function rndSpawnTier(){
   return 0;
 }
 function mkBody(x,y,tier){
-  return {id:nextId++, x, y, vx:0, vy:0, r:TIERS[tier].r, tier, touched:false, spawnT:1, merging:false,
-          angle:Math.random()*6.2832, va:(Math.random()-0.5)*4, sq:0, sqv:0, sqa:0};
+  const r = TIERS[tier].r, N = 10 + tier*2;
+  const b = {id:nextId++, x, y, vx:0, vy:0, r, tier, touched:false, spawnT:1, merging:false,
+             angle:Math.random()*6.2832, va:(Math.random()-0.5)*4,
+             sink:0.05 + tier*0.015, nodes:[]}; // sink: how deep the soft core squashes into contacts
+  for(let i=0;i<N;i++) b.nodes.push({lx:0, ly:0, lvx:0, lvy:0});
+  resetNodes(b, 1);
+  return b;
 }
-// squish kick: v = impact speed, ang = bulge axis; bigger tier = squishier
-function squishKick(b, v, ang){
-  b.sqa = ang;
-  b.sqv += Math.min(v*0.0007*(1 + b.tier*0.3), 7);
+function resetNodes(b, scale){
+  const N = b.nodes.length;
+  for(let i=0;i<N;i++){
+    const a = b.angle + i*6.2832/N, n = b.nodes[i];
+    n.lx = Math.cos(a)*b.r*scale; n.ly = Math.sin(a)*b.r*scale;
+    n.lvx = n.lvy = 0;
+  }
+}
+// soft-body membrane: radial + edge springs, gas pressure, hard clamps at contacts.
+// Nodes live in center-local space; the center stays a rigid circle so piles/merges stay stable.
+function skinStep(b, dt){
+  const nds = b.nodes, N = nds.length, r = b.r;
+  const K = 700/(1 + b.tier*0.8);              // radial shape memory — big = soft
+  const KE = K*1.2, restLen = 2*r*Math.sin(Math.PI/N);
+  let A = 0; // shoelace ×2
+  for(let i=0;i<N;i++){ const p = nds[i], q = nds[(i+1)%N]; A += p.lx*q.ly - q.lx*p.ly; }
+  const pk = Math.max(0, 1 - Math.abs(A)/(6.2832*r*r)) * (2000 + b.tier*2500); // pressure: bulge where free
+  const dp = Math.exp(-6*dt);
+  for(let i=0;i<N;i++){
+    const n = nds[i], prev = nds[(i+N-1)%N], next = nds[(i+1)%N];
+    const ra = b.angle + i*6.2832/N;
+    let fx = (Math.cos(ra)*r - n.lx)*K, fy = (Math.sin(ra)*r - n.ly)*K;
+    let dx = prev.lx-n.lx, dy = prev.ly-n.ly, d = Math.hypot(dx,dy)||1, f = (d-restLen)*KE/d;
+    fx += dx*f; fy += dy*f;
+    dx = next.lx-n.lx; dy = next.ly-n.ly; d = Math.hypot(dx,dy)||1; f = (d-restLen)*KE/d;
+    fx += dx*f; fy += dy*f;
+    let nx = next.ly-prev.ly, ny = prev.lx-next.lx; // outward normal from neighbor chord
+    const nl = Math.hypot(nx,ny)||1;
+    if(nx*n.lx + ny*n.ly < 0){ nx = -nx; ny = -ny; }
+    fx += nx/nl*pk; fy += ny/nl*pk;
+    n.lvx = (n.lvx + fx*dt)*dp; n.lvy = (n.lvy + fy*dt)*dp;
+    n.lx += n.lvx*dt; n.ly += n.lvy*dt;
+    // contacts flatten the membrane for real: floor + walls
+    if(b.y + n.ly > FLOOR){ n.ly = FLOOR - b.y; if(n.lvy > 0) n.lvy = 0; }
+    if(b.x + n.lx < WALL){ n.lx = WALL - b.x; if(n.lvx < 0) n.lvx = 0; }
+    if(b.x + n.lx > W-WALL){ n.lx = W-WALL - b.x; if(n.lvx > 0) n.lvx = 0; }
+  }
+}
+function dent(a, b){ // push a's membrane nodes out of b's core -> mutual squish in piles
+  const rb = b.r*(1 - b.sink) - 1;
+  const ox = a.x - b.x, oy = a.y - b.y;
+  for(const n of a.nodes){
+    const wx = ox + n.lx, wy = oy + n.ly;
+    const d = Math.hypot(wx, wy);
+    if(d < rb && d > 0.001){
+      const s = rb/d;
+      n.lx = wx*s - ox; n.ly = wy*s - oy;
+    }
+  }
 }
 curTier = rndSpawnTier(); nxtTier = rndSpawnTier();
 
@@ -450,24 +500,12 @@ function step(dt){
     if(sp > MAXV){ b.vx *= MAXV/sp; b.vy *= MAXV/sp; }
     b.x += b.vx*dt; b.y += b.vy*dt;
     b.angle += b.va*dt; b.va *= Math.pow(0.3, dt); // free spin decays; settled angle stays put
-    // squish spring — lower frequency for big tiers = floppier wobble
-    const om = 20 - b.tier*1.4;
-    b.sqv += (-om*om*b.sq - 0.36*om*b.sqv)*dt;
-    b.sq += b.sqv*dt;
-    if(b.sq > 0.5){ b.sq = 0.5; if(b.sqv > 0) b.sqv = 0; }
-    if(b.sq < -0.35){ b.sq = -0.35; if(b.sqv < 0) b.sqv = 0; }
     if(b.spawnT < 1) b.spawnT += dt*6;
-    if(b.x - b.r < WALL){
-      if(b.vx < -150) squishKick(b, -b.vx, Math.PI/2);
-      b.x = WALL + b.r; b.vx = Math.abs(b.vx)*REST;
-    }
-    if(b.x + b.r > W-WALL){
-      if(b.vx > 150) squishKick(b, b.vx, Math.PI/2);
-      b.x = W-WALL - b.r; b.vx = -Math.abs(b.vx)*REST;
-    }
-    if(b.y + b.r > FLOOR){
-      if(b.vy > 150) squishKick(b, b.vy, 0);
-      b.y = FLOOR - b.r;
+    const cr = b.r*(1 - (b.sink||0)); // soft core sinks into contacts; membrane fills the gap
+    if(b.x - cr < WALL){ b.x = WALL + cr; b.vx = Math.abs(b.vx)*REST; }
+    if(b.x + cr > W-WALL){ b.x = W-WALL - cr; b.vx = -Math.abs(b.vx)*REST; }
+    if(b.y + cr > FLOOR){
+      b.y = FLOOR - cr;
       b.vy = -Math.abs(b.vy)*REST;
       if(Math.abs(b.vy) < 50) b.vy = 0; // rest threshold: kill micro-bounce
       b.vx *= 0.98;
@@ -480,7 +518,8 @@ function step(dt){
       const a = bodies[i];
       for(let j=i+1;j<bodies.length;j++){
         const b = bodies[j];
-        const dx = b.x-a.x, dy = b.y-a.y, minD = a.r+b.r;
+        const dx = b.x-a.x, dy = b.y-a.y;
+        const minD = a.r+b.r - a.r*(a.sink||0) - b.r*(b.sink||0); // soft cores overlap -> squishy packing
         const d2 = dx*dx+dy*dy;
         if(d2 >= minD*minD) continue;
         a.touched = b.touched = true;
