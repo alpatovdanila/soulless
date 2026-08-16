@@ -348,7 +348,7 @@ const earnPM = lv => 45 * Math.pow(1.16, lv);
 // back empty: cheap schoolers fill the line; skill/depth decides VALUE, not whether you catch.
 function bandQuota(bi, from, to, nBands){
   const dens = Math.max(0.6, 1.15 - 0.6*bi/((nBands || 8) - 1));   // v6.8: deep floor — the abyss lives
-  const base = clamp(Math.round((to - from)/30) + 5, 8, 34) * dens;
+  const base = clamp(Math.round((to - from)/30) + 5, 8, 34 + Math.round((to - from)/(8*PX_PER_M))) * dens; // deep bands: cap grows with span
   const shallowBonus = bi === 0 ? 14 : bi === 1 ? 8 : 0;
   return Math.max(4, Math.round(base + shallowBonus));
 }
@@ -412,9 +412,9 @@ const BANDS = [
   { to:250*PX_PER_M, water:'#071f3a', fish:[['Vampire Squid','#d96a9e',40,300,500,60,'skittish'],['Ghost Shark','#b8c4d1',60,350,600,85,'cruiser'],['Phantom Eel','#d8e8ff',44,320,520,65,'lurker']] },
   { to:450*PX_PER_M, water:'#041226', fish:[['Void Jelly','#8f7fff',40,900,1500,40,'drifter'],['Leviathan Fry','#5fd1ff',50,1000,1800,95,'darter']] },
   { to:800*PX_PER_M, water:'#020814', fish:[['Elder Kraken','#ff8f5f',90,2500,5000,70,'lurker'],['Abyss Dragon','#ffd75c',110,3000,6000,105,'cruiser']] },
-  { to:1500*PX_PER_M, water:'#01060e', fish:[['Gulper Eel','#7fa8ff',56,7000,12000,80,'darter'],['Abyss Watcher','#9fe8ff',70,8000,14000,50,'lurker'],['Viperfish','#b8ffd1',48,6500,11000,90,'darter'],['Ghost Ray','#d8d8ff',80,9000,16000,45,'cruiser']] },
+  { to:1500*PX_PER_M, water:'#01060e', fish:[['Gulper Eel','#7fa8ff',56,7000,12000,80,'darter'],['Abyss Watcher','#9fe8ff',70,8000,14000,50,'lurker'],['Viperfish','#b8ffd1',34,6500,11000,60,'school'],['Ghost Ray','#d8d8ff',80,9000,16000,45,'cruiser']] },
   { to:3000*PX_PER_M, water:'#000309', fish:[['Voidmaw','#c9b8ff',120,20000,38000,70,'cruiser'],['Sunless King','#ffd0a8',96,24000,45000,55,'lurker'],['Crystal Crab','#aef4ff',60,18000,32000,25,'drifter'],['Eldritch Angler','#ff9fd0',85,26000,48000,50,'lurker']] },
-  { to:99000*PX_PER_M, water:'#000000', fish:[['Nameless Thing','#e8f4ff',140,60000,110000,60,'cruiser'],['The Deep One','#a8ffd8',120,70000,130000,45,'lurker'],['Leviathan Spawn','#ffb37f',110,80000,150000,75,'darter'],['Eye of the Abyss','#ffffff',95,90000,170000,30,'drifter']] },
+  { to:99000*PX_PER_M, water:'#000000', fish:[['Nameless Thing','#e8f4ff',140,60000,110000,60,'cruiser'],['The Deep One','#a8ffd8',120,70000,130000,45,'lurker'],['Leviathan Spawn','#ffb37f',60,80000,150000,55,'school'],['Eye of the Abyss','#ffffff',95,90000,170000,30,'drifter']] },
 ];
 const ARTS = [['Amphora','🏺'],['Royal Crown','👑'],['Stone Idol','🗿'],['Ancient Urn','⚱️']];
 const ARTS_DEEP = [['Ship Bell','🔔'],['Cursed Compass','🧭'],['Message Bottle','🍾'],['Ancient Anchor','⚓'],['Abyssal Pearl','🦪']];   // sunken relics, deep spawns only
@@ -2484,7 +2484,7 @@ function update(dt, rdt){
     // SWEPT test: distance from the fish to the hook's frame-travel segment — fast deep reels
     // move many px per frame and would tunnel straight through shoals with a point test.
     // Radii are SCREEN-scaled (÷zoom) so required aim precision is constant at any depth.
-    if (phase === 'REEL' && castW < maxWeight()){
+    if (phase === 'REEL' && !spoolUp && castW < maxWeight()){  // spool-up = bail, not harvest
       const treasure = f.kind==='chest' || f.kind==='art' || f.kind==='part' || f.kind==='crate';
       if (!(castLure === 'magnet' && !treasure)){  // magnet lure catches NO fish
         const zi3 = 1/Math.max(zoom, 0.02);
