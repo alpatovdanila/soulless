@@ -18,7 +18,7 @@
      in drawAimUI/drawRuler to match). Retune here if the user wants another notch. */
   /* money pill top-RIGHT (coin-flight target), icon row below it, both right-aligned —
      the top-left corner stays clean for the hub button at every width */
-  #topbar { top:0; left:0; right:0; padding:8px 8px 6px 52px; display:flex; flex-direction:column; align-items:flex-end; gap:6px; background:linear-gradient(#0009,#0000); pointer-events:none; }
+  #topbar { top:0; left:0; right:0; padding:8px 8px 6px 52px; display:flex; align-items:flex-start; justify-content:space-between; gap:6px; background:linear-gradient(#0009,#0000); pointer-events:none; }
   #topbar .pill, #topbar .icons > * { pointer-events:auto; }
   #topbar .icons { display:flex; gap:6px; pointer-events:none; }
   .pill { background:linear-gradient(#17456f,#0d2c4c); border:2.5px solid #ffffff2e; border-radius:999px; padding:5px 16px; font-size:20px; font-weight:800; white-space:nowrap; color:#fff; box-shadow:0 3px 0 #00000045;
@@ -86,6 +86,9 @@
   .closex { float:right; background:none; border:none; color:#fff; font-size:28px; padding:2px 12px; margin-top:-4px; }
   #spoolBtn { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:6; display:none; padding:16px 34px; border-radius:22px; font-size:22px; font-weight:800; font-family:inherit; color:#fff; background:linear-gradient(#22d3ee,#0e7490); border:3px solid #ffffff38; box-shadow:0 5px 0 #155e75, 0 9px 16px #0007; }
   #spoolBtn.on { background:linear-gradient(#4ade80,#16a34a); box-shadow:0 5px 0 #14683a, 0 0 16px #4ade8088; }
+  .misrow.done { border:2px solid #2ee06d; box-shadow:0 0 12px #2ee06d55; }
+  .claimbtn { float:right; margin-left:10px; padding:9px 18px; border-radius:12px; border:0; font-family:inherit; font-weight:800; font-size:15px; color:#08301a; background:linear-gradient(#7dffa8,#2ee06d); box-shadow:0 3px 0 #1a8a48; cursor:pointer; }
+  .claimbtn:active { transform:scale(.9); }
   #adoverlay { position:absolute; z-index:30; inset:0; background:#111; display:none; flex-direction:column; align-items:center; justify-content:center; color:#fff; text-align:center; }
   #adoverlay .fakead { width:min(80vw,300px); height:180px; border-radius:18px; background:linear-gradient(135deg,#f43f5e,#f59e0b,#8b5cf6); display:flex; align-items:center; justify-content:center; font-size:40px; margin-bottom:14px; animation:adpulse 1.2s infinite alternate; }
   @keyframes adpulse { to { filter:hue-rotate(50deg); } }
@@ -280,17 +283,14 @@ const SMELLY = { discovery:0, daily:1, negotiateP:0.22, magnetP:0.10, rewardAd:2
 // over the last stretch — no asymptotic crawl; the integral equals the budget exactly.
 // v5.16 pinned pacing ratio: descent cruise speed = EXACTLY 2× the reel-up speed, at every
 // Reel Speed level — the whole journey's tempo scales with the reel upgrade, one knob.
-const sinkV0 = reelSp => 2 * reelSp;
-function sinkPlan(D, v0){
-  const dTail = Math.min(0.3*D, v0*0.55);    // generous, FEELABLE ease into the turnaround
-  const tMain = (D - dTail)/v0;
-  const tTail = 2*dTail/v0;                  // cosine ease v0→0: avg v0/2 (integral exact)
-  return { v0, tMain, tTail, T: tMain + tTail };
-}
-function sinkSpeed(t, p){
-  if (t < p.tMain) return p.v0;
-  const u = clamp((t - p.tMain)/p.tTail, 0, 1);
-  return p.v0 * (1 + Math.cos(u*Math.PI)) / 2;   // smooth decel — the player senses "about to turn"
+const sinkV0 = reelSp => 2 * reelSp;   // descent = exactly 2× the ascent, at any depth
+// v6 turnaround (distance-based; speeds are zoom-live so no precomputed timeline):
+// cruise → ~1 s sine ease-down into the stop → beat → ~2 s smoothstep accel into the reel.
+const SINK_DECEL_T = 1.0, REEL_RAMP_T = 2.0;
+function sinkEase(left, vBase){
+  const dWin = Math.max(20, vBase * SINK_DECEL_T * 0.5);   // distance a 1 s sine decel covers
+  const u = clamp(left/dWin, 0, 1);
+  return u >= 1 ? 1 : Math.max(0.05, Math.sin(u * Math.PI/2));
 }
 // v5.14 vertical joystick pacing on the reel: finger above center = a bit faster up,
 // below = a bit slower (±25%, same deadzone as the horizontal axis)
@@ -408,6 +408,9 @@ const BANDS = [
   { to:250*PX_PER_M, water:'#071f3a', fish:[['Vampire Squid','#d96a9e',40,300,500,60,'skittish'],['Ghost Shark','#b8c4d1',60,350,600,85,'cruiser'],['Phantom Eel','#d8e8ff',44,320,520,65,'lurker']] },
   { to:450*PX_PER_M, water:'#041226', fish:[['Void Jelly','#8f7fff',40,900,1500,40,'drifter'],['Leviathan Fry','#5fd1ff',50,1000,1800,95,'darter']] },
   { to:800*PX_PER_M, water:'#020814', fish:[['Elder Kraken','#ff8f5f',90,2500,5000,70,'lurker'],['Abyss Dragon','#ffd75c',110,3000,6000,105,'cruiser']] },
+  { to:1500*PX_PER_M, water:'#01060e', fish:[['Gulper Eel','#7fa8ff',56,7000,12000,80,'darter'],['Abyss Watcher','#9fe8ff',70,8000,14000,50,'lurker']] },
+  { to:3000*PX_PER_M, water:'#000309', fish:[['Voidmaw','#c9b8ff',120,20000,38000,70,'cruiser'],['Sunless King','#ffd0a8',96,24000,45000,55,'lurker']] },
+  { to:99000*PX_PER_M, water:'#000000', fish:[['Nameless Thing','#e8f4ff',140,60000,110000,60,'cruiser'],['The Deep One','#a8ffd8',120,70000,130000,45,'lurker']] },
 ];
 const ARTS = [['Amphora','🏺'],['Royal Crown','👑'],['Stone Idol','🗿'],['Ancient Urn','⚱️']];
 const ARTS_DEEP = [['Ship Bell','🔔'],['Cursed Compass','🧭']];   // sunken relics, deep spawns only
@@ -415,6 +418,8 @@ const ARTS_DEEP = [['Ship Bell','🔔'],['Cursed Compass','🧭']];   // sunken 
 const WEIRD = {
   'Anglerfish':'bio angler', 'Void Jelly':'bio', 'Lanternfish':'bio', 'Leviathan Fry':'bio',
   'Ghost Shark':'ghost', 'Phantom Eel':'ghost bio',
+  'Gulper Eel':'bio', 'Abyss Watcher':'bio', 'Voidmaw':'ghost bio',
+  'Sunless King':'bio', 'Nameless Thing':'ghost bio', 'The Deep One':'bio',
 };
 const LURES = {
   simple: { ic:'🐛', nm:'Simple' },   // consumable, but refunded by hauls/sells (never depletes in play)
@@ -503,8 +508,10 @@ const seenCount  = () => Object.keys(S.seen).length;
 const milestonesHit = () => MILESTONES.filter(m => seenCount() >= m).length;
 const valMult    = () => 1 + 0.1*milestonesHit();         // museum milestones only (Value upgrade removed)
 const trapRate   = () => 0.6 * S.lv.trap;
-// v5.2: reel-up halved — the up-journey IS the gameplay; upgrades stay proportionally faster
-const reelSpeed  = () => (60 + maxDepth()*0.014) * (1 + 0.12*S.lv.reel); // ponytail: deep-game reel time knob
+// v6: SCREEN-space speeds — the hook moves at constant px/s ON SCREEN at any depth; the real
+// m/s scales with 1/zoom automatically (deeper = zoomed out = faster world travel). One knob.
+const reelScr    = () => 175 * (1 + 0.12*S.lv.reel);       // ponytail: base screen reel speed knob
+const reelSpeed  = () => reelScr() / Math.max(zoom, 0.02); // world px/s, derived live from the camera
 
 /* ============ audio + haptics ============ */
 let AC = null;
@@ -558,7 +565,8 @@ const sfx = {
   cast:   () => { noise(0.32, 0.22, 380, 1.1, 0, 2200); beep(500,0.28,'sine',0.07,0,-380); }, // meaty WHOOSH
   perfect:() => [880,1108,1318].forEach((f,i)=>beep(f,0.1,'triangle',0.12,i*0.05)),
   good:   () => { beep(740,0.08,'triangle',0.11); beep(988,0.12,'triangle',0.11,0.06); },
-  hook:   ch => { beep(300*Math.pow(1.1, Math.min(ch||1,9)), 0.09, 'square', 0.11); beep(1500,0.05,'sine',0.09,0,600); }, // ladder + crisp pop
+  hook:   ch => { const p = Math.pow(1.06, Math.min(ch||1,9));            // soft watery plip, pitch ladder kept
+    beep(420*p, 0.11, 'sine', 0.13, 0, 340*p); beep(880*p, 0.05, 'triangle', 0.045, 0.02, 240); },
   chach:  () => { beep(1318,0.07,'triangle',0.12); beep(1760,0.12,'triangle',0.12,0.06); },
   sell:   (amt, step) => { // cha-ching cascade scaling with the amount; step paces the ceremony
     step = step || 0.08;
@@ -670,7 +678,8 @@ const sy = y => (y - camY) * zoom;   // world-y → screen-y (exploration zoom)
 // Interaction radii are world-space (slightly forgiving vertically at high zoom); revisit only on feel complaints.
 let aimStart = null, aimCur = null, gTheta = 0, dragFrac = 0;
 let flight = { vx:0, vy:0 }, sinkMaxY = 0, castTravel = 0;
-let sinkP = null, sinkT = 0, sinkDir = {x:0, y:1}, touched = false, touchT = 0; // v5.7 sink profile
+let sinkLeft = 0, sinkDir = {x:0, y:1}, touched = false, touchT = 0; // v6 distance-based sink
+let hkPX = 0, hkPY = 0; // hook position at frame start — swept catch test (fast reels tunnel otherwise)
 let perfectCast = false, castValM = 1;
 let jsActive = false, jsC = {x:0,y:0}, jsX = 0, jsY = 0;
 let rodFlex = 0, lineLag = 0;
@@ -1039,9 +1048,10 @@ function beginSink(){
   const dx0 = castDirG.x, dy0 = Math.max(0.05, castDirG.y);
   const dn = Math.hypot(dx0, dy0);
   sinkDir = { x: dx0/dn, y: dy0/dn };
-  sinkP = sinkPlan(Math.max(30, castTravel - HOP.s), sinkV0(reelSpeed()));
-  sinkT = 0; touched = false; touchT = 0;
-  flight.vx = sinkDir.x*sinkP.v0; flight.vy = sinkDir.y*sinkP.v0;
+  sinkLeft = Math.max(30, castTravel - HOP.s);
+  touched = false; touchT = 0;
+  const v00 = sinkV0(reelSpeed());
+  flight.vx = sinkDir.x*v00; flight.vy = sinkDir.y*v00;
   sinkMaxY = Math.max(0, hook.y);
   phase = 'SINK';
   hint(S.casts <= 3 ? 'Steer now — tap & slide left/right!' : ''); // steering live from splashdown
@@ -1058,12 +1068,24 @@ function startReel(){
   refreshBars();    // shows the SPOOL UP button (REEL-only)
 }
 $('spoolBtn').addEventListener('click', () => {
-  if (phase !== 'REEL') return;
-  spoolUp = !spoolUp;
-  $('spoolBtn').classList.toggle('on', spoolUp);
+  if (phase === 'SINK'){          // bail out mid-descent: cut straight to the turnaround, fast
+    sinkLeft = 0; spoolUp = true;
+    $('spoolBtn').classList.add('on');
+  } else if (phase === 'REEL'){
+    spoolUp = !spoolUp;
+    $('spoolBtn').classList.toggle('on', spoolUp);
+  } else return;
   noise(0.28, 0.16, 700, 1.4, 0, spoolUp ? 1800 : -400);   // line-zip up / ease-off down
   vib(12);
 });
+function engageSpoolUp(){        // auto: the moment the line hits max weight, reel in fast
+  if (spoolUp) return;
+  spoolUp = true;
+  $('spoolBtn').classList.add('on');
+  if (phase === 'SINK') sinkLeft = 0;
+  snack('⏫', 'Line full — reeling in!');
+  noise(0.28, 0.16, 700, 1.4, 0, 1800); vib([15, 25, 15]);
+}
 function museumDot(){
   S.museumNew = true;
   $('collBtn').classList.add('unread');
@@ -1072,6 +1094,7 @@ function catchFish(f){
   const w = weightOf(f.size, f.kind, f.rtier);
   if (castW + w > maxWeight()){ strainFlash = 1; return; }  // line at its limit — hooking stops
   castW += w;
+  if (castW >= maxWeight()*0.995) engageSpoolUp();   // full line = automatic fast reel-in
   f.caught = true;
   if (animT - lastCatchT <= COMBO_WIN) chain++; else chain = 1;
   lastCatchT = animT;
@@ -1372,39 +1395,61 @@ function rwLabel(rw){
   return rw.m ? '💰' : LURES[rw.l[0]].ic + '×' + rw.l[1];
 }
 function completeMission(i){
+  // v6: completion only ARMS the claim — the player collects manually from the missions sheet
   const m = S.missions[i];
+  m.done = true;
+  snack('🎯', 'Mission complete — claim your reward!');
+  sfx.good ? sfx.good() : sfx.buy();
+  missionDot();
+  save();
+  if ($('misModal').style.display === 'flex') renderMissions();
+}
+function missionDot(){
+  $('misBtn').classList.toggle('unread', (S.missions||[]).some(m => m && m.done));
+}
+function claimMission(i){
+  const m = S.missions[i];
+  if (!m || !m.done) return;
+  const mr = $('misBtn').getBoundingClientRect();
   let rwTxt;
   if (m.rw.m){
     const amt = Math.max(40, Math.round(castEarn * m.rw.m));
     addMoney(amt);
     rwTxt = '+' + fmtMoney(amt);
+    for (let k = 0; k < 5; k++) flyIcon('🪙', mr.left + 20, mr.top + 20, $('money'), 0.08*k);
   } else {
     addLure(m.rw.l[0], m.rw.l[1]);
     rwTxt = '+' + m.rw.l[1] + LURES[m.rw.l[0]].ic;
+    for (let k = 0; k < m.rw.l[1]; k++)
+      flyIcon(LURES[m.rw.l[0]].ic, mr.left + 20, mr.top + 20, $('slot-' + m.rw.l[0]), 0.1*k);
   }
   snack('🎯', m.t + ' → ' + rwTxt);
-  sfx.buy(); burst(W/2, H*0.3, '#7fdc7f', 14, true);
+  sfx.buy(); burst(W/2, H*0.3, '#7fdc7f', 14, true); vib([15, 20, 15]);
   S.missions[i] = genMission();
-  save();
-  if ($('misModal').style.display === 'flex') renderMissions();
+  missionDot(); save(); renderMissions();
 }
 function renderMissions(){
   const el = $('misList'); el.innerHTML = '';
-  for (const m of S.missions){
+  S.missions.forEach((m, i) => {
     const d = document.createElement('div');
-    d.className = 'misrow';
-    const pct = clamp(m.p / m.n * 100, 0, 100);
+    d.className = 'misrow' + (m.done ? ' done' : '');
+    const pct = m.done ? 100 : clamp(m.p / m.n * 100, 0, 100);
     const pv = m.k === 'depthx'
       ? Math.round(Math.min(m.p,m.n)/PX_PER_M) + 'm / ' + Math.round(m.n/PX_PER_M) + 'm'
       : fmt(Math.min(m.p,m.n)) + ' / ' + fmt(m.n);
-    d.innerHTML = '<span class="rw">' + rwLabel(m.rw) + '</span>'
+    d.innerHTML = (m.done ? '<button class="claimbtn" data-mi="' + i + '">CLAIM ' + rwLabel(m.rw) + '</button>' : '<span class="rw">' + rwLabel(m.rw) + '</span>')
       + m.t + '<div style="font-size:10px;opacity:.7;margin-top:2px">' + pv + '</div>'
       + '<div class="misbar"><i style="width:' + pct + '%"></i></div>';
     el.appendChild(d);
-  }
+  });
 }
+$('misList').addEventListener('click', e => {
+  const b = e.target.closest('.claimbtn');
+  if (b) claimMission(+b.dataset.mi);
+});
 $('misBtn').addEventListener('click', () => { renderMissions(); $('misModal').style.display = 'flex'; });
 if (!S.missions) S.missions = [genMission(), genMission(), genMission()];
+missionDot();   // restore the claim-pending dot across reloads
 
 /* ============ upgrades popup ============ */
 const upgBtns = {};
@@ -1422,7 +1467,7 @@ function upgEffect(k){
     case 'spool': return '+' + Math.round((spoolDepth(lv+1) - spoolDepth(lv))/PX_PER_M) + 'm deeper';
     case 'line':  return '+' + (lineCap(lv+1) - lineCap(lv)) + 'kg per cast';
     case 'spin':  return spinParams(lv+1).always ? 'always perfect' : 'slower arrow · wider zone';
-    case 'reel':  return '+' + ((60 + maxDepth()*0.014)*0.12/PX_PER_M).toFixed(1) + ' m/s reel';
+    case 'reel':  return '+12% reel speed';
     case 'trap':  return '+' + fmtMoney(0.6*3600) + '/h idle';
   }
   return '';
@@ -1495,8 +1540,8 @@ function refreshBars(){
   $('adrow').style.display = idle ? 'flex' : 'none';
   $('actionrow').style.display = idle ? 'flex' : 'none';
   $('lureRow').style.display = idle ? 'flex' : 'none';
-  $('spoolBtn').style.display = phase === 'REEL' ? '' : 'none';
-  if (phase !== 'REEL'){ spoolUp = false; $('spoolBtn').classList.remove('on'); }
+  $('spoolBtn').style.display = (phase === 'REEL' || phase === 'SINK') ? '' : 'none';
+  if (phase !== 'REEL' && phase !== 'SINK'){ spoolUp = false; $('spoolBtn').classList.remove('on'); }
   $('lureAdBtn').style.display = (S.lures.smelly||0) < 5 ? '' : 'none';
   // radio slots: all lure types side-by-side, active highlighted
   for (const k of LURE_KEYS){
@@ -1753,13 +1798,27 @@ function drawFish(f, t){
   cx.translate(f.x, py);
   cx.scale(zoom, zoom);
   if (f.emoji){
-    if (f.kind === 'levi') cx.drawImage(SPR.glowRed, -60, -60);
-    if (f.kind === 'crate'){   // the carrot glints HARD — must read at pass-by speed
+    // v6: SPECIALS MUST POP — every special catchable glows harder than any fish
+    if (f.kind === 'levi'){
+      cx.globalAlpha = 0.75 + 0.25*Math.sin(t*3 + f.ph);
+      cx.drawImage(SPR.glowRed, -130, -130, 260, 260);   // apex encounter: reads across the screen
+      cx.globalAlpha = 1;
+      if (!f.stung && py > -40 && py < H + 40){          // one-time sting when it enters view
+        f.stung = true;
+        beep(70, 0.9, 'sine', 0.16, 0, -25); beep(140, 0.7, 'triangle', 0.08, 0.1, -60); vib([40,60,40]);
+      }
+    } else if (f.kind === 'crate'){   // the carrot glints HARD — must read at pass-by speed
       cx.globalAlpha = 0.7 + 0.3*Math.sin(t*5 + f.ph);
       cx.drawImage(SPR.glowGold, -75, -75, 150, 150);
       cx.globalAlpha = 1;
       cx.fillStyle = 'rgba(255,255,255,' + (0.4 + 0.4*Math.sin(t*7 + f.ph)) + ')';
       cx.beginPath(); cx.arc(14, -12, 3, 0, 7); cx.fill();
+    } else if (f.kind !== 'boot'){    // chests, artifacts, parts: pulsing gold glow + sparkle
+      cx.globalAlpha = 0.55 + 0.35*Math.sin(t*4 + f.ph);
+      cx.drawImage(SPR.glowGold, -60, -60, 120, 120);
+      cx.globalAlpha = 1;
+      cx.fillStyle = 'rgba(255,255,255,' + (0.3 + 0.4*Math.sin(t*6 + f.ph)) + ')';
+      cx.beginPath(); cx.arc(10, -10, 2.4, 0, 7); cx.fill();
     }
     const bob = Math.sin(t*2 + f.ph) * 3;
     cx.scale(f.dir < 0 ? -1 : 1, 1);
@@ -1836,19 +1895,21 @@ function drawSky(t){
   const sg = cx.createLinearGradient(0, 0, 0, skyH);
   sg.addColorStop(0, '#6fbfe8'); sg.addColorStop(1, '#d6f0ff');
   cx.fillStyle = sg; cx.fillRect(0, 0, W, skyH);
-  cx.drawImage(SPR.sun, W - 130, skyH*0.35 - 70);
-  // clouds: 2 parallax layers
-  for (let i = 0; i < 3; i++){
-    const x = ((i*260 + t*9) % (W + 340)) - 170;
-    cx.globalAlpha = 0.85;
-    cx.drawImage(SPR.cloud, x, skyH*0.12 + i*10);
+  if (skyH > 8){   // sky decor only when the sky is actually on screen — no clouds underwater
+    cx.drawImage(SPR.sun, W - 130, skyH*0.35 - 70);
+    // clouds: 2 parallax layers
+    for (let i = 0; i < 3; i++){
+      const x = ((i*260 + t*9) % (W + 340)) - 170;
+      cx.globalAlpha = 0.85;
+      cx.drawImage(SPR.cloud, x, skyH*0.12 + i*10);
+    }
+    for (let i = 0; i < 3; i++){
+      const x = ((i*300 + 140 + t*22) % (W + 340)) - 170;
+      cx.globalAlpha = 0.45;
+      cx.drawImage(SPR.cloud, x, skyH*0.3 + i*8, 102, 38);
+    }
+    cx.globalAlpha = 1;
   }
-  for (let i = 0; i < 3; i++){
-    const x = ((i*300 + 140 + t*22) % (W + 340)) - 170;
-    cx.globalAlpha = 0.45;
-    cx.drawImage(SPR.cloud, x, skyH*0.3 + i*8, 102, 38);
-  }
-  cx.globalAlpha = 1;
   // waves: overlapping sine bands + foam caps
   const cols = ['rgba(232,247,255,0.9)','rgba(190,229,248,0.55)','rgba(160,215,240,0.4)'];
   for (let k = 0; k < 3; k++){
@@ -2183,12 +2244,15 @@ function update(dt, rdt){
     }
     if (fp >= 1) beginSink();
   } else if (phase === 'SINK'){
+    hkPX = hook.x; hkPY = hook.y;               // swept-catch segment start
     if (!touched){
-      sinkT += dt;
-      const spd0 = sinkSpeed(sinkT, sinkP);
+      // v6: distance-based descent at screen-constant speed (2× reel), ~1 s sine ease to the stop
+      const vBase = sinkV0(reelSpeed());
+      const spd0 = vBase * sinkEase(sinkLeft, vBase);
       flight.vx = sinkDir.x*spd0; flight.vy = sinkDir.y*spd0;   // feeds line-lag/tilt/steer caps
       hook.x += flight.vx*dt; hook.y += flight.vy*dt;
-      if (sinkT >= sinkP.T){
+      sinkLeft -= spd0*dt;
+      if (sinkLeft <= 0.5){
         touched = true; touchT = 0.45;                 // the "touched the depth" beat — readable
         flight.vx = 0; flight.vy = 0;
         beep(240, 0.14, 'sine', 0.11, 0, -70); vib(15);
@@ -2198,30 +2262,34 @@ function update(dt, rdt){
       touchT -= dt;
       if (touchT <= 0) endSink();
     }
-    // steer from splashdown — authority ramps in, lateral capped below the vertical drop speed
+    // steer from splashdown — authority ramps in (screen-scaled), capped below the drop speed
     const sf = steerForce();
     const cap2 = latCap(Math.abs(flight.vy));
-    if (sf) hook.vx = clamp(hook.vx + sf*330*Math.min(1, steerHeldT/0.35)*dt, -cap2, cap2);
+    const zi = 1/Math.max(zoom, 0.02);
+    if (sf) hook.vx = clamp(hook.vx + sf*330*zi*Math.min(1, steerHeldT/0.35)*dt, -cap2, cap2);
     else {
-      const dc = 500*dt;
+      const dc = 500*zi*dt;
       hook.vx = Math.abs(hook.vx) <= dc ? 0 : hook.vx - Math.sign(hook.vx)*dc;
     }
-    if (Math.abs(hook.vx) > cap2) hook.vx -= Math.sign(hook.vx)*Math.min(Math.abs(hook.vx) - cap2, 400*dt);
+    if (Math.abs(hook.vx) > cap2) hook.vx -= Math.sign(hook.vx)*Math.min(Math.abs(hook.vx) - cap2, 400*zi*dt);
     hook.x += hook.vx*dt;
-    if (hook.x < 14 || hook.x > W-14){ hook.x = clamp(hook.x, 14, W-14); sinkDir.x = 0; }
+    if (hook.x < 14 || hook.x > W-14){        // hard wall: position clamped AND outward speed zeroed
+      hook.x = clamp(hook.x, 14, W-14); sinkDir.x = 0;
+      if ((hook.x <= 14 && hook.vx < 0) || (hook.x >= W-14 && hook.vx > 0)) hook.vx = 0;
+    }
     if (hook.y < 6) hook.y = 6;
     sinkMaxY = Math.max(sinkMaxY, hook.y);
     if (!touched && Math.random() < 0.5) bubble(hook.x + rnd(-4,4), hook.y);
-    // fish do NOT repel from the sinking lure — you place it INTO them
   } else if (phase === 'REEL'){
-    // v5.5 continuity: residual sink momentum decays out while the winch ramps in over 0.5 s
+    hkPX = hook.x; hkPY = hook.y;               // swept-catch segment start
+    // v5.5 continuity: residual sink momentum decays out while the winch ramps in
     reelT += dt;
     flight.vx *= Math.exp(-4*dt); flight.vy *= Math.exp(-4*dt);
     hook.x += flight.vx*dt; hook.y += flight.vy*dt;
     const rt = rodTipPos();
     const ddx = rt.x - hook.x, ddy = rt.y - hook.y, dl = Math.hypot(ddx, ddy) || 1;
-    // eased acceleration into the ascend (smoothstep over 0.9 s); SPOOL UP overrides pacing
-    const ru = Math.min(1, reelT/0.9);
+    // v6: eased acceleration into the ascend (smoothstep over ~2 s); SPOOL UP overrides pacing
+    const ru = Math.min(1, reelT/REEL_RAMP_T);
     const paceMul = spoolUp ? SPOOL_UP_MULT : (jsActive ? reelPace(jsY) : 1);
     const sp = reelSpeed() * ru*ru*(3 - 2*ru) * paceMul;
     hook.x += ddx/dl*sp*dt; hook.y += ddy/dl*sp*dt;
@@ -2232,13 +2300,15 @@ function update(dt, rdt){
     }
     const f = steerForce();
     const cap = latCap(reelSpeed());   // steering is placement, not flying sideways
-    if (f) hook.vx = clamp(hook.vx + f*600*Math.min(1, steerHeldT/0.35)*dt, -cap, cap);
+    const zi2 = 1/Math.max(zoom, 0.02);
+    if (f) hook.vx = clamp(hook.vx + f*600*zi2*Math.min(1, steerHeldT/0.35)*dt, -cap, cap);
     else {
-      const dec2 = 900*dt;
+      const dec2 = 900*zi2*dt;
       hook.vx = Math.abs(hook.vx) <= dec2 ? 0 : hook.vx - Math.sign(hook.vx)*dec2;
     }
-    if (Math.abs(hook.vx) > cap) hook.vx -= Math.sign(hook.vx)*Math.min(Math.abs(hook.vx) - cap, 400*dt);
+    if (Math.abs(hook.vx) > cap) hook.vx -= Math.sign(hook.vx)*Math.min(Math.abs(hook.vx) - cap, 400*zi2*dt);
     hook.x = clamp(hook.x + hook.vx*dt, 12, W-12);
+    if ((hook.x <= 12 && hook.vx < 0) || (hook.x >= W-12 && hook.vx > 0)) hook.vx = 0; // wall: no phantom overshoot
     if (hook.y <= 2 || dl < 38) surface();
   }
   churn(dt);   // persistent population: off-screen spawn/despawn only
@@ -2308,24 +2378,40 @@ function update(dt, rdt){
       if (py > -40 && py < H + 40)
         particles.push({ x:f.x - f.dir*f.size, y:f.y, vx:rnd(-8,8), vy:rnd(-14,-4), life:rnd(0.6,1.1), t:0, color:'#a0ffe9aa', bub:true });
     }
-    // hooking — lure-aware, weight-capped; live during SINK too (drop the lure INTO the school)
-    if ((phase === 'REEL' || phase === 'SINK') && castW < maxWeight()){
+    // hooking — REEL only (v6: no catching on the way down), lure-aware, weight-capped.
+    // SWEPT test: distance from the fish to the hook's frame-travel segment — fast deep reels
+    // move many px per frame and would tunnel straight through shoals with a point test.
+    // Radii are SCREEN-scaled (÷zoom) so required aim precision is constant at any depth.
+    if (phase === 'REEL' && castW < maxWeight()){
       const treasure = f.kind==='chest' || f.kind==='art' || f.kind==='part' || f.kind==='crate';
       if (!(castLure === 'magnet' && !treasure)){  // magnet lure catches NO fish
-        const ddx = f.x - hook.x, ddy = f.y - hook.y;
+        const zi3 = 1/Math.max(zoom, 0.02);
+        // point-to-segment distance² from the fish to [frame-start → hook]
+        const sx0 = hkPX, sy0 = hkPY, sdx = hook.x - sx0, sdy = hook.y - sy0;
+        const sl2 = sdx*sdx + sdy*sdy;
+        const tt = sl2 > 1e-6 ? clamp(((f.x - sx0)*sdx + (f.y - sy0)*sdy)/sl2, 0, 1) : 0;
+        const cxp = sx0 + sdx*tt, cyp = sy0 + sdy*tt;
+        const ddx = f.x - cxp, ddy = f.y - cyp;
         const d2 = ddx*ddx + ddy*ddy;
-        const r = f.size*0.8 + 9;
-        let ar = r + 30, pull = 300;
-        if (castLure === 'smelly' && !treasure && f.kind !== 'boot'){ ar = r + 90; pull = 420; }
-        if (castLure === 'magnet' && treasure){ ar = (r + 30) * 5; pull = 520; }
-        if (d2 < r*r) catchFish(f);
-        else if (d2 < ar*ar){
-          const dd = Math.sqrt(d2) || 1;
-          f.x -= ddx/dd * pull * dt;
-          f.y -= ddy/dd * pull * dt;
+        const r = f.size*0.8 + 26*zi3;
+        // fish that no longer FIT under the weight cap are neither caught nor attracted —
+        // no dragging uncatchable fish around; a brush past them just strains the line
+        if (castW + weightOf(f.size, f.kind, f.rtier) > maxWeight()){
+          if (d2 < r*r) strainFlash = 1;
+        } else {
+          let ar = r + 40*zi3, pull = 300*zi3;
+          if (castLure === 'smelly' && !treasure && f.kind !== 'boot'){ ar = r + 130*zi3; pull = 430*zi3; }
+          if (castLure === 'magnet' && treasure){ ar = (r + 40*zi3) * 5; pull = 540*zi3; }
+          if (d2 < r*r) catchFish(f);
+          else if (d2 < ar*ar){
+            const dd = Math.sqrt(d2) || 1;
+            f.x -= ddx/dd * pull * dt;
+            f.y -= ddy/dd * pull * dt;
+          }
         }
       }
     }
+    if (f.y < 30) f.y = 30;   // fish never float above the waterline ("fish in the air" fix)
   }
   // decoration drift
   for (const f of farItems) if (f.s === 0){ f.x += f.dir*f.spd*dt; if (f.x < -120) f.x = W+110; if (f.x > W+120) f.x = -110; }
@@ -2339,11 +2425,15 @@ function update(dt, rdt){
     ? zoomAction(zClose, Math.max(0, hook.y)/PX_PER_M)
     : zClose;
   zoom += (zTarget - zoom) * Math.min(1, rdt*2.5);
-  const anch = phase === 'SINK' ? 0.30 : 0.62;
+  // sink: hook rides the upper third (the window ahead is the decision); reel: hook hugs the
+  // BOTTOM (~78%) so the water above is the reaction/steering room (v6 user ask)
+  const anch = phase === 'SINK' ? 0.30 : 0.78;
   // idle/aim/flight: surface sits ~28% down the screen — the boat rides low with sky above,
   // so fly-in arcs and the growing deck pile are never clipped by the top edge
-  const targetCam = (phase==='SINK'||phase==='REEL') ? hook.y - (H*anch)/zoom
+  let targetCam = (phase==='SINK'||phase==='REEL') ? hook.y - (H*anch)/zoom
     : -(H*0.28)/zoom;
+  const camMin = -(H*0.28)/zoom;   // the camera never rises above its default idle framing
+  if (targetCam < camMin) targetCam = camMin;
   camY += (targetCam - camY) * Math.min(1, dt*6);
   shake = Math.max(0, shake - rdt*22);
   // particles
