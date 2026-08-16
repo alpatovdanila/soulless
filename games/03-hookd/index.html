@@ -563,7 +563,8 @@ const SND = {
   whoosh1:'sfx/whoosh_1.wav', whoosh2:'sfx/whoosh_2.wav', splash:'sfx/water_splashing.wav',
   perfect:'sfx/xylophone_chime_positive.wav', good:'sfx/xylophone_chime_quick.wav',
   coin1:'sfx/coin.wav', coin2:'sfx/coin_2.wav', coin3:'sfx/coin_3.wav', coin4:'sfx/coin_4.wav',
-  gather:'sfx/coins_gather_medium.wav', clang:'sfx/metal_clang.wav', thud:'sfx/clothing_thud.wav',
+  gather:'sfx/coins_gather_quick.wav', coinc:'sfx/coin_collect.wav', jingle:'sfx/coin_jingle_small.wav',
+  clang:'sfx/metal_clang.wav', thud:'sfx/clothing_thud.wav',
   upgrade:'sfx/weapon_upgrade.wav', powerup:'sfx/power_up.wav', horror:'sfx/horror_sting.wav',
   error:'sfx/synth_error.wav', zipup:'sfx/zipper_up.wav', zipdown:'sfx/zipper_down.wav',
   toggle:'sfx/toggle_on.wav', complete:'sfx/xylophone_level_complete.wav', bells:'sfx/jingle_bells_1.wav',
@@ -607,7 +608,7 @@ const sfx = {
   good:   () => { sPlay('good', 0.55) || (beep(740,0.08,'triangle',0.11), beep(988,0.12,'triangle',0.11,0.06)); },
   hook:   ch => { sPlay('x'+clamp(ch||1,1,10), 0.5) ||                    // xylophone combo ladder 1→10
     beep(420*Math.pow(1.06,Math.min(ch||1,9)), 0.11, 'sine', 0.13, 0, 340); },
-  chach:  () => { sAny(['coin1','coin2','coin3','coin4'], 0.4) || (beep(1318,0.07,'triangle',0.12), beep(1760,0.12,'triangle',0.12,0.06)); },
+  chach:  () => { sPlay('coinc', 0.4, 0.95 + Math.random()*0.2) || (beep(1318,0.07,'triangle',0.12), beep(1760,0.12,'triangle',0.12,0.06)); }, // short coin, slight pitch spread
   sell:   (amt, step) => { if (sPlay('gather', 0.6)) return;
     step = step || 0.08;
     const n = clamp(3 + Math.floor(Math.log10(Math.max(10, amt))), 3, 9);
