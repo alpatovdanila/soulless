@@ -63,6 +63,10 @@ document.querySelectorAll('a.card').forEach(function(a){
 });
 // first tap anywhere inside a running game also enters fullscreen (covers the auto-opened main game)
 window.addEventListener('pointerdown', goFS, {passive:true});
+// taps INSIDE the game iframe don't bubble here — hook the same-origin frame's window too
+frame.addEventListener('load', function(){
+  try { frame.contentWindow.addEventListener('pointerdown', goFS, {passive:true}); } catch(e){}
+});
 document.getElementById('hubBtn').addEventListener('click',function(){location.hash='more';});
 window.addEventListener('hashchange',route);
 route();
