@@ -289,7 +289,7 @@ const sinkV0 = reelSp => 2 * reelSp;   // descent = exactly 2× the ascent, at a
 const SINK_DECEL_T = 1.0, REEL_RAMP_T = 2.0;   // end-ease and pull-away, both in SCREEN time
 // v5.14 vertical joystick pacing on the reel: finger above center = a bit faster up,
 // below = a bit slower (±25%, same deadzone as the horizontal axis)
-const reelPace = offY => Math.abs(offY) < 6 ? 1 : 1 - 0.25*clamp(offY/60, -1, 1);
+const reelPace = offY => Math.abs(offY) < 6 ? 1 : 1 - 0.12*clamp(offY/60, -1, 1); // gentle ±12%
 // v5.15 SPOOL UP: tap-to-toggle bail-out — reels ~3.5× so an unlucky throw isn't a slog.
 // Catching stays live (the speed itself makes catches unlikely); overrides joystick pacing.
 const SPOOL_UP_MULT = 3.5;
@@ -403,18 +403,20 @@ const BANDS = [
   { to:250*PX_PER_M, water:'#071f3a', fish:[['Vampire Squid','#d96a9e',40,300,500,60,'skittish'],['Ghost Shark','#b8c4d1',60,350,600,85,'cruiser'],['Phantom Eel','#d8e8ff',44,320,520,65,'lurker']] },
   { to:450*PX_PER_M, water:'#041226', fish:[['Void Jelly','#8f7fff',40,900,1500,40,'drifter'],['Leviathan Fry','#5fd1ff',50,1000,1800,95,'darter']] },
   { to:800*PX_PER_M, water:'#020814', fish:[['Elder Kraken','#ff8f5f',90,2500,5000,70,'lurker'],['Abyss Dragon','#ffd75c',110,3000,6000,105,'cruiser']] },
-  { to:1500*PX_PER_M, water:'#01060e', fish:[['Gulper Eel','#7fa8ff',56,7000,12000,80,'darter'],['Abyss Watcher','#9fe8ff',70,8000,14000,50,'lurker']] },
-  { to:3000*PX_PER_M, water:'#000309', fish:[['Voidmaw','#c9b8ff',120,20000,38000,70,'cruiser'],['Sunless King','#ffd0a8',96,24000,45000,55,'lurker']] },
-  { to:99000*PX_PER_M, water:'#000000', fish:[['Nameless Thing','#e8f4ff',140,60000,110000,60,'cruiser'],['The Deep One','#a8ffd8',120,70000,130000,45,'lurker']] },
+  { to:1500*PX_PER_M, water:'#01060e', fish:[['Gulper Eel','#7fa8ff',56,7000,12000,80,'darter'],['Abyss Watcher','#9fe8ff',70,8000,14000,50,'lurker'],['Viperfish','#b8ffd1',48,6500,11000,90,'darter'],['Ghost Ray','#d8d8ff',80,9000,16000,45,'cruiser']] },
+  { to:3000*PX_PER_M, water:'#000309', fish:[['Voidmaw','#c9b8ff',120,20000,38000,70,'cruiser'],['Sunless King','#ffd0a8',96,24000,45000,55,'lurker'],['Crystal Crab','#aef4ff',60,18000,32000,25,'drifter'],['Eldritch Angler','#ff9fd0',85,26000,48000,50,'lurker']] },
+  { to:99000*PX_PER_M, water:'#000000', fish:[['Nameless Thing','#e8f4ff',140,60000,110000,60,'cruiser'],['The Deep One','#a8ffd8',120,70000,130000,45,'lurker'],['Leviathan Spawn','#ffb37f',110,80000,150000,75,'darter'],['Eye of the Abyss','#ffffff',95,90000,170000,30,'drifter']] },
 ];
 const ARTS = [['Amphora','🏺'],['Royal Crown','👑'],['Stone Idol','🗿'],['Ancient Urn','⚱️']];
-const ARTS_DEEP = [['Ship Bell','🔔'],['Cursed Compass','🧭']];   // sunken relics, deep spawns only
+const ARTS_DEEP = [['Ship Bell','🔔'],['Cursed Compass','🧭'],['Message Bottle','🍾'],['Ancient Anchor','⚓'],['Abyssal Pearl','🦪']];   // sunken relics, deep spawns only
 // depth gets WEIRD: per-species strangeness (bio glow spots / ghost translucency / glowing angler lure)
 const WEIRD = {
   'Anglerfish':'bio angler', 'Void Jelly':'bio', 'Lanternfish':'bio', 'Leviathan Fry':'bio',
   'Ghost Shark':'ghost', 'Phantom Eel':'ghost bio',
   'Gulper Eel':'bio', 'Abyss Watcher':'bio', 'Voidmaw':'ghost bio',
   'Sunless King':'bio', 'Nameless Thing':'ghost bio', 'The Deep One':'bio',
+  'Viperfish':'bio', 'Ghost Ray':'ghost', 'Crystal Crab':'bio',
+  'Eldritch Angler':'bio angler', 'Leviathan Spawn':'bio', 'Eye of the Abyss':'ghost bio',
 };
 const LURES = {
   simple: { ic:'🐛', nm:'Simple' },   // consumable, but refunded by hauls/sells (never depletes in play)
@@ -440,6 +442,9 @@ const SPECIALS = [
   { name:'Sunken Crate', emoji:'📦', size:20 },
   { name:'Ship Bell', emoji:'🔔', size:15 },
   { name:'Cursed Compass', emoji:'🧭', size:15 },
+  { name:'Message Bottle', emoji:'🍾', size:15 },
+  { name:'Ancient Anchor', emoji:'⚓', size:16 },
+  { name:'Abyssal Pearl', emoji:'🦪', size:15 },
   { name:'Upgrade Part', emoji:'⚙️', size:13 },
   { name:'Simple Lure', emoji:'🐛', size:12 },
   { name:'Smelly Lure', emoji:'🧀', size:12 },
@@ -2262,16 +2267,12 @@ function update(dt, rdt){
       touchT -= dt;
       if (touchT <= 0) endSink();
     }
-    // steer from splashdown — authority ramps in (screen-scaled), capped below the drop speed
+    // v6.3 steering = DIRECT small lateral speed, no windup: minor corrections only — AIM matters.
+    // Speed maps straight from the joystick offset (≤20% of the descent speed), responds instantly.
     const sf = steerForce();
-    const cap2 = latCap(Math.abs(flight.vy));
     const zi = 1/Math.max(zoom, 0.02);
-    if (sf) hook.vx = clamp(hook.vx + sf*330*zi*Math.min(1, steerHeldT/0.35)*dt, -cap2, cap2);
-    else {
-      const dc = 500*zi*dt;
-      hook.vx = Math.abs(hook.vx) <= dc ? 0 : hook.vx - Math.sign(hook.vx)*dc;
-    }
-    if (Math.abs(hook.vx) > cap2) hook.vx -= Math.sign(hook.vx)*Math.min(Math.abs(hook.vx) - cap2, 400*zi*dt);
+    const sT = sf * 0.20 * 2*reelScr() * zi;
+    hook.vx += (sT - hook.vx) * Math.min(1, dt*9);
     hook.x += hook.vx*dt;
     if (hook.x < 14 || hook.x > W-14){        // hard wall: position clamped AND outward speed zeroed
       hook.x = clamp(hook.x, 14, W-14); sinkDir.x = 0;
@@ -2298,15 +2299,11 @@ function update(dt, rdt){
       if (zipT <= 0){ zipT = 0.32; noise(0.1, 0.05, 1500, 2, 0, 700); }   // line-zip while active
       if (Math.random() < 0.5) bubble(hook.x + rnd(-8, 8), hook.y + rnd(6, 18));
     }
+    // v6.3 steering = DIRECT small lateral speed (≤22% of reel speed), instant, no windup
     const f = steerForce();
-    const cap = latCap(reelSpeed());   // steering is placement, not flying sideways
     const zi2 = 1/Math.max(zoom, 0.02);
-    if (f) hook.vx = clamp(hook.vx + f*600*zi2*Math.min(1, steerHeldT/0.35)*dt, -cap, cap);
-    else {
-      const dec2 = 900*zi2*dt;
-      hook.vx = Math.abs(hook.vx) <= dec2 ? 0 : hook.vx - Math.sign(hook.vx)*dec2;
-    }
-    if (Math.abs(hook.vx) > cap) hook.vx -= Math.sign(hook.vx)*Math.min(Math.abs(hook.vx) - cap, 400*zi2*dt);
+    const sT2 = f * 0.22 * reelScr() * zi2;
+    hook.vx += (sT2 - hook.vx) * Math.min(1, dt*9);
     hook.x = clamp(hook.x + hook.vx*dt, 12, W-12);
     if ((hook.x <= 12 && hook.vx < 0) || (hook.x >= W-12 && hook.vx > 0)) hook.vx = 0; // wall: no phantom overshoot
     if (hook.y <= 2 || dl < 38) surface();
