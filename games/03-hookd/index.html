@@ -736,7 +736,7 @@ let atmo = null, atmoCd = 0; // deep-water atmosphere events (far layer, never i
 let flightArc = null, flightT = 0, castDirG = {x:0.87, y:0.5}; // fixed hop + underwater travel dir
 let churnT = 0;              // off-screen population churn timer
 let reelT = 0, steerHeldT = 0; // v5.5: velocity-continuity ramps (no phase-flip speed jumps)
-let spoolUp = false, zipT = 0; // v5.15: SPOOL UP fast-ascent toggle + line-zip sfx ticker
+let spoolUp = false, zipT = 0, spoolT = 0; // SPOOL UP toggle + zip ticker + 4s-deadline clock
 let selling = false;           // v5.6: sell-ceremony guard
 let animT = 0;
 const HOME = () => W*0.5;    // v5.4: boat at screen center — both sides fully reachable
@@ -1127,10 +1127,10 @@ function startReel(){
 }
 $('spoolBtn').addEventListener('click', () => {
   if (phase === 'SINK'){          // bail out mid-descent: cut straight to the turnaround, fast
-    sinkT = sinkDur; spoolUp = true;
+    sinkT = sinkDur; spoolUp = true; spoolT = 0;
     $('spoolBtn').classList.add('on');
   } else if (phase === 'REEL'){
-    spoolUp = !spoolUp;
+    spoolUp = !spoolUp; spoolT = 0;
     $('spoolBtn').classList.toggle('on', spoolUp);
   } else return;
   sPlay(spoolUp ? 'zipup' : 'zipdown', 0.55) || noise(0.28, 0.16, 700, 1.4, 0, spoolUp ? 1800 : -400);
@@ -1138,7 +1138,7 @@ $('spoolBtn').addEventListener('click', () => {
 });
 function engageSpoolUp(quiet){   // auto: the moment the line hits max weight, reel in fast
   if (spoolUp) return;
-  spoolUp = true;
+  spoolUp = true; spoolT = 0;
   $('spoolBtn').classList.add('on');
   if (phase === 'SINK') sinkT = sinkDur;
   // no "full" banner — the wind-up sound + button state ARE the telegraph
@@ -2394,7 +2394,10 @@ function update(dt, rdt){
     const ru = Math.min(1, reelT/REEL_RAMP_T);
     const paceMul = spoolUp ? SPOOL_UP_MULT : (jsActive ? reelPace(jsY) : 1);
     let sp = reelSpeed() * ru*ru*(3 - 2*ru) * paceMul;
-    if (spoolUp) sp = Math.max(sp, dl/4);   // v6.9.1: SPOOL UP is TIME-bound — surface in ≤4 s from anywhere
+    if (spoolUp){                     // v6.9.2: hard 4 s DEADLINE — remaining ÷ time-left, not ÷4
+      spoolT += dt;                   // (remaining/4 every frame = exponential decay, never arrives)
+      sp = Math.max(sp, dl / Math.max(0.15, 3.7 - spoolT));
+    }
     hook.x += ddx/dl*sp*dt; hook.y += ddy/dl*sp*dt;
     if (spoolUp){
       zipT -= dt;
