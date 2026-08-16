@@ -25,6 +25,12 @@ Replace the current upgrade list with:
 - **Gear is visible**: lure color/shape per type (Simple/Smelly/Search Magnet each instantly recognizable on the hook), line color/thickness reflects Better Line level (rope tiers), rod skin/color reflects Spinning tier (Rusty brown → Steel grey → Carbon black → Pro gold trim → Legendary glow). Progress you can SEE on the equipment itself.
 - Museum also logs lures used and parts; parts (⚙️, 5 = +1 free level) now apply to Spool/Line/Reel.
 
+### v5.1 playtest feedback (camera & motion)
+- **Fish are too fast, too linear.** Global speed pass DOWN (especially shallow bands — shallow fish must read as easy targets); movement gets gentle non-linearity: sinusoidal wander, curved drift, slight speed oscillation. Darters keep bursts but rest longer.
+- **Camera zoom = exploration.** At any moment the view should frame roughly the player's REACHABLE depth (plus a dark teaser sliver below), not the whole world. Start: zoomed into band 1 — big fish, visible progress within the band. Each Bigger Spool level effectively "unlocks" more visible world; undiscovered depth stays out of sight until you can cast into it. Implement as a world-scale/zoom factor tied to max depth (smooth-lerped on upgrade, with a satisfying zoom-out moment). Deep weird content must NOT be visible from the surface at start.
+- **Boat sits LEFT of screen** (~15-20% x), casts arc rightward — more aim room, natural slingshot ergonomics. Aim cone adjusts accordingly (rightward only).
+- **Real scale: 50px = 1m in world units.** Boat ≈ 5m (250 world px), fish sized in plausible meters (sardine ~0.2m, cruisers ~1-2m, leviathan ~10m+), depth labels must match actual world distance (100m = 5000 world px below the surface). Camera zoom (above) maps world→screen; the invariant is internal consistency — a "100m" cast must LOOK ~20 boat-lengths deep, not 4. Depth-meter readouts, bands, and reach all derive from the same px/m constant.
+
 ### Fish rework (v5): behaviors + depth distribution
 - **Behavior archetypes** — species get one of several visibly distinct behaviors, not one shared swim:
   - *Schoolers*: small fish in loose groups, aligned drift (cheap boids: cohesion+alignment within the school only).

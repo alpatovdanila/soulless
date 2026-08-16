@@ -221,12 +221,14 @@ function powerFactor(g, zw){
   return Math.max(0.55, 0.95 - 0.4 * off/(0.5 - zw/2));
 }
 function clampAim(dx, dy){
-  let ax = -dx, ay = -dy;
-  const side = ax > 0 ? 1 : ax < 0 ? -1 : 1;
-  let ang = Math.atan2(-ay, Math.abs(ax));
+  // v5.1: boat sits left, casts always arc RIGHTWARD (10°–80° above horizontal)
+  let ang = Math.atan2(dy, Math.abs(dx));   // drag down = aim up
   ang = clamp(ang, Math.PI/18, Math.PI*4/9);
-  return { x: side*Math.cos(ang), y: -Math.sin(ang) };
+  return { x: Math.cos(ang), y: -Math.sin(ang) };
 }
+// v5.1 exploration camera: frame roughly the reachable depth + a dark teaser sliver below.
+// zoom > 1 early (band 1 fills the view, fish look big); eases to 1:1 as the spool grows.
+const zoomFor = (md, availH) => clamp(availH / (md*1.35 + 3*PX_PER_M), 0.12, 0.85);
 function computeHaul(fv, valM, castM, perfect, full){
   const items = fv.map(f => Math.round(f.v * valM * castM));
   const combo = fv.reduce((s,f,i) => s + Math.round(items[i] * ((f.m||1) - 1)), 0);
@@ -236,6 +238,10 @@ function computeHaul(fv, valM, castM, perfect, full){
   const haul = full ? Math.round(sub * 0.5) : 0;   // PERFECT HAUL ×1.5 total
   return { items, combo, perf, haul, total: sub + haul };
 }
+// ---- REAL SCALE ----
+// One world-scale constant: 1 metre = 50 world px. Boat ≈ 5 m (250 px), depths are literal
+// (100 m = 5000 px below the surface). All depth readouts/bands/reach derive from this.
+const PX_PER_M = 50;
 // ---- v5 progression ----
 // Bigger Spool: +10% depth per level; pacing target ≈ one level per 5-10 min early
 // (EARN_PM_EARLY = tuned avg $/min for a fresh player — the calibration knob)
@@ -243,7 +249,7 @@ const SPOOL = { base:300, early:1.3, late:1.38, knee:10, EARN_PM_EARLY:50 };
 const spoolCost = lv => Math.ceil(SPOOL.base
   * Math.pow(SPOOL.early, Math.min(lv, SPOOL.knee))
   * Math.pow(SPOOL.late, Math.max(0, lv - SPOOL.knee)));
-const spoolDepth = lv => Math.round(150 * Math.pow(1.1, lv));
+const spoolDepth = lv => Math.round(12 * PX_PER_M * Math.pow(1.1, lv)); // 12 m of line to start, +10%/level
 // Better Line: max weight per cast
 const lineCap = lv => Math.round(10 * Math.pow(1.3, lv));
 // rarity: tier 0-3 (common/uncommon/rare/epic); deeper water shifts odds toward rare
@@ -262,6 +268,7 @@ function weightOf(size, kind, rtier){
   if (kind === 'art') return 5;
   if (kind === 'part') return 2;
   if (kind === 'boot') return 3;
+  if (kind === 'levi') return 400;   // 10 m trophy — needs a late-game line
   return Math.max(1, Math.round(size*size/50 * RWMUL[rtier||0]));
 }
 // Better Spinning: tiers → gauge params (+ rod skin per tier)
@@ -279,15 +286,17 @@ const spinParams = t => SPIN[clamp(t, 0, SPIN.length-1)];
 // band: {to, water, fish:[[name,color,size,vmin,vmax,speed,archetype]]}
 // depth pass: shallow = dense/cheap/light/slow schoolers+drifters; mid = darters/cruisers;
 // deep = sparse/expensive/heavy lurkers & fast rares. Values superlinear with depth.
+// REAL SCALE: band boundaries in literal metres (×PX_PER_M), fish sized in plausible metres
+// (size = half-length in px: sardine ~0.2 m → 11, tuna ~1.6 m → 40, kraken ~3.6 m → 90)
 const BANDS = [
-  { to:160,  water:'#2e93c7', fish:[['Minnow','#bfe3f2',7,1,2,45,'school'],['Sardine','#d8e6ee',8,2,3,60,'school'],['Guppy','#f2c66b',6,1,2,50,'school'],['Moon Jelly','#cfe0ff',9,1,2,18,'drifter']] },
-  { to:380,  water:'#1f74a8', fish:[['Perch','#8fd18a',10,4,7,55,'darter'],['Mackerel','#7fb6d9',11,6,10,75,'school'],['Herring','#c8d8e8',9,5,8,65,'school']] },
-  { to:700,  water:'#175a8c', fish:[['Snapper','#e88a8a',13,12,20,65,'darter'],['Pufferfish','#e8d08a',12,15,28,45,'skittish'],['Squid','#d8a8e8',12,14,24,50,'darter']] },
-  { to:1150, water:'#0f416e', fish:[['Tuna','#6f8fb3',16,35,60,90,'cruiser'],['Swordfish','#9fb6cc',18,50,90,110,'darter'],['Barracuda','#9fd1b3',17,40,75,120,'skittish']] },
-  { to:1750, water:'#0a2e52', fish:[['Eel','#7fe0c0',15,100,160,70,'lurker'],['Anglerfish','#c9a1e8',15,120,200,55,'lurker'],['Lanternfish','#9ff5e0',12,110,180,60,'school']] },
-  { to:2600, water:'#071f3a', fish:[['Vampire Squid','#d96a9e',17,300,500,60,'skittish'],['Ghost Shark','#b8c4d1',20,350,600,85,'cruiser'],['Phantom Eel','#d8e8ff',16,320,520,65,'lurker']] },
-  { to:3700, water:'#041226', fish:[['Void Jelly','#8f7fff',18,900,1500,40,'drifter'],['Leviathan Fry','#5fd1ff',22,1000,1800,95,'darter']] },
-  { to:5200, water:'#020814', fish:[['Elder Kraken','#ff8f5f',24,2500,5000,70,'lurker'],['Abyss Dragon','#ffd75c',26,3000,6000,105,'cruiser']] },
+  { to:12*PX_PER_M,  water:'#2e93c7', fish:[['Minnow','#bfe3f2',10,1,2,45,'school'],['Sardine','#d8e6ee',11,2,3,60,'school'],['Guppy','#f2c66b',9,1,2,50,'school'],['Moon Jelly','#cfe0ff',14,1,2,18,'drifter']] },
+  { to:25*PX_PER_M,  water:'#1f74a8', fish:[['Perch','#8fd18a',16,4,7,55,'darter'],['Mackerel','#7fb6d9',18,6,10,75,'school'],['Herring','#c8d8e8',15,5,8,65,'school']] },
+  { to:45*PX_PER_M,  water:'#175a8c', fish:[['Snapper','#e88a8a',22,12,20,65,'darter'],['Pufferfish','#e8d08a',20,15,28,45,'skittish'],['Squid','#d8a8e8',20,14,24,50,'darter']] },
+  { to:80*PX_PER_M,  water:'#0f416e', fish:[['Tuna','#6f8fb3',40,35,60,90,'cruiser'],['Swordfish','#9fb6cc',50,50,90,110,'darter'],['Barracuda','#9fd1b3',44,40,75,120,'skittish']] },
+  { to:140*PX_PER_M, water:'#0a2e52', fish:[['Eel','#7fe0c0',36,100,160,70,'lurker'],['Anglerfish','#c9a1e8',34,120,200,55,'lurker'],['Lanternfish','#9ff5e0',26,110,180,60,'school']] },
+  { to:250*PX_PER_M, water:'#071f3a', fish:[['Vampire Squid','#d96a9e',40,300,500,60,'skittish'],['Ghost Shark','#b8c4d1',60,350,600,85,'cruiser'],['Phantom Eel','#d8e8ff',44,320,520,65,'lurker']] },
+  { to:450*PX_PER_M, water:'#041226', fish:[['Void Jelly','#8f7fff',40,900,1500,40,'drifter'],['Leviathan Fry','#5fd1ff',50,1000,1800,95,'darter']] },
+  { to:800*PX_PER_M, water:'#020814', fish:[['Elder Kraken','#ff8f5f',90,2500,5000,70,'lurker'],['Abyss Dragon','#ffd75c',110,3000,6000,105,'cruiser']] },
 ];
 const ARTS = [['Amphora','🏺'],['Royal Crown','👑'],['Stone Idol','🗿'],['Ancient Urn','⚱️']];
 const ARTS_DEEP = [['Ship Bell','🔔'],['Cursed Compass','🧭']];   // sunken relics, deep spawns only
@@ -369,6 +378,7 @@ try {
     }
   }
 } catch(e){}
+if (!S.mScale){ S.mScale = 1; S.recDepth = 0; }  // REAL SCALE bump: old depth records were in dead units
 function save(){ S.last = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} }
 setInterval(save, 3000);
 addEventListener('visibilitychange', save);
@@ -379,7 +389,7 @@ const seenCount  = () => Object.keys(S.seen).length;
 const milestonesHit = () => MILESTONES.filter(m => seenCount() >= m).length;
 const valMult    = () => 1 + 0.1*milestonesHit();         // museum milestones only (Value upgrade removed)
 const trapRate   = () => 0.6 * S.lv.trap;
-const reelSpeed  = () => (115 + maxDepth()*0.025) * (1 + 0.12*S.lv.reel);
+const reelSpeed  = () => (120 + maxDepth()*0.028) * (1 + 0.12*S.lv.reel); // ponytail: deep-game reel time knob
 const dMax       = () => H * 0.4;
 const flightV0   = P => (0.35 + 0.65*P) * Math.sqrt(W*0.62*1100); // whippy in air; water drag is the contrast
 
@@ -537,7 +547,11 @@ let phase = 'IDLE'; // IDLE | AIMING | FLIGHT | SINK | REEL
 let hook = { x:0, y:6, vx:0 };
 let fishes = [], caught = [], particles = [], banners = [];
 let farItems = [], nearItems = [], stashPile = [], flyers = [], schools = [];
-let camY = -120, shake = 0, tScale = 1, castEarn = 6, boatRock = 0;
+let camY = -110, shake = 0, tScale = 1, castEarn = 6, boatRock = 0;
+let zoom = 1;
+const sy = y => (y - camY) * zoom;   // world-y → screen-y (exploration zoom)
+// ponytail: zoom scales y-positions + entity sprites; x stays 1:1 so world width == screen width.
+// Interaction radii are world-space (slightly forgiving vertically at high zoom); revisit only on feel complaints.
 let aimStart = null, aimCur = null, gTheta = 0, dragFrac = 0;
 let flight = { vx:0, vy:0 }, sinkK = 1, sinkMaxY = 0, castP = 0;
 let perfectCast = false, castValM = 1;
@@ -548,13 +562,13 @@ let goldenArmed = false;
 let castW = 0, castLure = 'simple', strainFlash = 0;
 let atmo = null, atmoCd = 0; // deep-water atmosphere events (far layer, never interactive)
 let animT = 0;
-const HOME = () => W/2;
+const HOME = () => W*0.18;   // v5.1: boat sits left, casts arc rightward
 hook.x = HOME();
 
-const waveY = (x, t) => Math.sin(x*0.021 + t*1.35)*4 + Math.sin(x*0.043 - t*0.8)*2.6;
+const waveY = (x, t) => Math.sin(x*0.021 + t*1.35)*12 + Math.sin(x*0.043 - t*0.8)*7.8; // ~0.4 m swells
 function rodTipPos(){
   const bx = HOME(), bob = waveY(bx, animT);
-  return { x: bx + 24, y: -34 + bob + rodFlex*10 };
+  return { x: bx + 110*zoom, y: -170 + bob + rodFlex*20 }; // rod tip ~3.4 m above the waterline
 }
 
 function bandAt(depth){
@@ -563,7 +577,7 @@ function bandAt(depth){
 }
 function spawnFish(){
   fishes = []; schools = [];
-  const reach = maxDepth() + 200;
+  const reach = maxDepth()*1.15 + 40;   // v5.1: no walls of unreachable fish below the framing
   let from = 0, anyGold = false;
   BANDS.forEach((b, bi) => {
     if (from > reach) return;
@@ -588,26 +602,26 @@ function spawnFish(){
   }
   // rare spawns — all money-valued now (no gems)
   if (Math.random() < 0.2)
-    fishes.push({ kind:'chest', name:'Treasure Chest', emoji:'🧰', size:16,
-      val:Math.round(40 + maxDepth()*0.12),
+    fishes.push({ kind:'chest', name:'Treasure Chest', emoji:'🧰', size:40,
+      val:Math.round(40 + maxDepth()*0.015),
       x:rnd(30,W-30), y:rnd(0.35,0.65)*maxDepth(), dir:1, speed:0, ph:rnd(0,7), caught:false });
   if (Math.random() < 0.06){
     const ay = rnd(0.5,0.95)*maxDepth();
-    const pool = ay > 1200 ? ARTS.concat(ARTS_DEEP) : ARTS;   // sunken relics only in the deep
+    const pool = ay > 60*PX_PER_M ? ARTS.concat(ARTS_DEEP) : ARTS; // sunken relics below 60 m
     const a = pool[Math.floor(Math.random()*pool.length)];
-    fishes.push({ kind:'art', name:a[0], emoji:a[1], size:15, val:Math.round(90 + maxDepth()*0.45),
+    fishes.push({ kind:'art', name:a[0], emoji:a[1], size:40, val:Math.round(90 + maxDepth()*0.05),
       x:rnd(30,W-30), y:ay, dir:1, speed:5, ph:rnd(0,7), caught:false });
   }
   if (Math.random() < 0.14)
-    fishes.push({ kind:'part', name:'Upgrade Part', emoji:'⚙️', size:13, val:0,
+    fishes.push({ kind:'part', name:'Upgrade Part', emoji:'⚙️', size:30, val:0,
       x:rnd(30,W-30), y:rnd(0.15,0.9)*maxDepth(), dir:1, speed:10, ph:rnd(0,7), caught:false });
   if (Math.random() < 0.15)
-    fishes.push({ kind:'boot', name:'Old Boot', emoji:'🥾', size:13, val:1,
+    fishes.push({ kind:'boot', name:'Old Boot', emoji:'🥾', size:30, val:1,
       x:rnd(30,W-30), y:rnd(0.2,0.95)*maxDepth(), dir:1, speed:8, ph:rnd(0,7), caught:false });
-  if (maxDepth() >= 1600 && Math.random() < 0.08){
+  if (maxDepth() >= 250*PX_PER_M && Math.random() < 0.08){
     const b = bandAt(maxDepth()*0.9), avg = (b.fish[0][3]+b.fish[0][4]+b.fish[1][3]+b.fish[1][4])/4;
     const ly = rnd(0.82,0.96)*maxDepth();
-    fishes.push({ kind:'levi', name:'Leviathan', emoji:'🐉', size:30, val:Math.round(avg*15),
+    fishes.push({ kind:'levi', name:'Leviathan', emoji:'🐉', size:260, val:Math.round(avg*15), // 10 m+
       x:rnd(40,W-40), y:ly, home:ly, arch:'lurker', rtier:3,
       dir:Math.random()<0.5?-1:1, speed:60, ph:rnd(0,7), caught:false });
   }
@@ -635,7 +649,8 @@ function mkFish(spec, from, to, golden, bi){
     color, dark: lerpColor(color, '#001020', 0.4),
     size: golden ? 13 : spec[2],
     val: Math.round((golden ? 5*(spec[3]+spec[4]) : rnd(spec[3],spec[4])) * RMUL[rtier] * archMul),
-    speed: rnd(0.8,1.25) * (golden ? 80 : spec[5]),
+    // v5.1 speed pass: shallow = slow easy targets, speed grows with depth
+    speed: rnd(0.8,1.25) * (golden ? 80 : spec[5]) * (0.45 + 0.5*bi/(BANDS.length-1)),
     x: rnd(0,W), y: rnd(from+22, Math.max(from+30, to-12)),
     dir: Math.random()<0.5?-1:1, ph: rnd(0,7), caught:false,
     arch, rtier, burst:false, dt2: rnd(0.5,2),
@@ -772,7 +787,7 @@ function waterEntry(){
   let dx = flight.vx/sp, dy = Math.max(0.25, flight.vy/sp);
   const dn = Math.hypot(dx, dy); dx /= dn; dy /= dn;
   const Sb = Math.max(60, castP * maxDepth());       // travel budget: perfect+full ≈ max reach
-  const v0 = clamp(Sb*1.1, 200, 900);                // heavy water drag: visibly slower than air
+  const v0 = clamp(Sb*1.1, 200, 1500);               // heavy water drag: visibly slower than air
   sinkK = v0 / Sb;                                   // ∫ v0·e^(-kt) = v0/k = Sb
   flight.vx = dx*v0; flight.vy = dy*v0;
   sinkMaxY = 0;
@@ -1006,7 +1021,7 @@ function genMission(){
   let tpl, guard = 0;
   do { tpl = MTPL[Math.floor(Math.random()*MTPL.length)]; } while (active.includes(tpl.k) && ++guard < 40);
   const m = { k:tpl.k, t:tpl.t, n:tpl.n, p:0, rw:tpl.rw };
-  if (tpl.k === 'depthx'){ m.n = Math.max(120, Math.round(maxDepth()*0.8/10)*10); m.t = 'Reach ' + m.n + 'm'; }
+  if (tpl.k === 'depthx'){ m.n = Math.round(maxDepth()*0.8); m.t = 'Reach ' + Math.round(m.n/PX_PER_M) + 'm'; }
   if (tpl.k === 'earnx'){ m.n = Math.max(80, Math.round(castEarn*6)); m.t = 'Earn ' + fmtMoney(m.n); }
   return m;
 }
@@ -1059,8 +1074,11 @@ function renderMissions(){
     const d = document.createElement('div');
     d.className = 'misrow';
     const pct = clamp(m.p / m.n * 100, 0, 100);
+    const pv = m.k === 'depthx'
+      ? Math.round(Math.min(m.p,m.n)/PX_PER_M) + 'm / ' + Math.round(m.n/PX_PER_M) + 'm'
+      : fmt(Math.min(m.p,m.n)) + ' / ' + fmt(m.n);
     d.innerHTML = '<span class="rw">' + rwLabel(m.rw) + '</span>'
-      + m.t + '<div style="font-size:10px;opacity:.7;margin-top:2px">' + fmt(Math.min(m.p,m.n)) + ' / ' + fmt(m.n) + '</div>'
+      + m.t + '<div style="font-size:10px;opacity:.7;margin-top:2px">' + pv + '</div>'
       + '<div class="misbar"><i style="width:' + pct + '%"></i></div>';
     el.appendChild(d);
   }
@@ -1292,7 +1310,7 @@ function renderColl(){
   const hit = milestonesHit();
   const next = MILESTONES.find(m => n < m);
   $('collStats').innerHTML =
-    '🏆 Deepest: <b>' + S.recDepth + 'm</b> · Best haul: <b>' + fmtMoney(S.recHaul) + '</b><br>'
+    '🏆 Deepest: <b>' + Math.round(S.recDepth/PX_PER_M) + 'm</b> · Best haul: <b>' + fmtMoney(S.recHaul) + '</b><br>'
     + '⭐ Milestones: <b>' + hit + '/' + MILESTONES.length + '</b> → <b>+' + hit*10 + '% value</b>'
     + (next ? ' <span style="opacity:.7">(next: ' + next + ' finds)</span>' : '');
 }
@@ -1391,10 +1409,12 @@ function drawFishParts(g, size, color, dark, wig){
   g.beginPath(); g.arc(size*0.58, -size*0.16, Math.max(0.6, size*0.045), 0, 7); g.fill();
 }
 function drawFish(f, t){
-  const py = f.y - camY;
-  if (py < -90 || py > H + 90) return;
+  const py = sy(f.y);
+  const mg = f.size*2.2*zoom + 80;
+  if (py < -mg || py > H + mg) return;
   cx.save();
   cx.translate(f.x, py);
+  cx.scale(zoom, zoom);
   if (f.emoji){
     if (f.kind === 'levi') cx.drawImage(SPR.glowRed, -60, -60);
     const bob = Math.sin(t*2 + f.ph) * 3;
@@ -1466,8 +1486,9 @@ function drawFish(f, t){
   cx.restore();
 }
 function drawSky(t){
-  const skyH = -camY;
+  const skyH = -camY * zoom;              // screen y of the surface
   if (skyH <= 0) return;
+  const bz = zoom;                        // REAL SCALE: the boat is world geometry (5 m), zooms with it
   const sg = cx.createLinearGradient(0, 0, 0, skyH);
   sg.addColorStop(0, '#6fbfe8'); sg.addColorStop(1, '#d6f0ff');
   cx.fillStyle = sg; cx.fillRect(0, 0, W, skyH);
@@ -1490,57 +1511,58 @@ function drawSky(t){
     cx.strokeStyle = cols[k];
     cx.lineWidth = 2.6 - k*0.7;
     cx.beginPath();
-    for (let x = 0; x <= W; x += 8) cx.lineTo(x, skyH + waveY(x + k*40, t*(1 + k*0.25)) + k*3);
+    for (let x = 0; x <= W; x += 8) cx.lineTo(x, skyH + (waveY(x + k*40, t*(1 + k*0.25)) + k*3)*bz);
     cx.stroke();
   }
   cx.fillStyle = 'rgba(255,255,255,0.7)';
   for (let x = 6; x < W; x += 26){
     const wy = waveY(x, t);
-    if (wy < -4.2){ cx.beginPath(); cx.arc(x, skyH + wy - 2, 1.6, 0, 7); cx.fill(); }
+    if (wy < -4.2){ cx.beginPath(); cx.arc(x, skyH + (wy - 2)*bz, 1.6*bz, 0, 7); cx.fill(); }
   }
   // boat (bobs + tilts on wave phase; rocks when a fish lands on deck)
-  const bx = HOME(), bob = waveY(bx, t), by = skyH - 8 + bob;
-  const slope = (waveY(bx+14, t) - waveY(bx-14, t)) / 28;
+  const bx = HOME(), bob = waveY(bx, t), by = skyH + (bob - 20)*bz;
+  const slope = (waveY(bx+40, t) - waveY(bx-40, t)) / 80;
   cx.save();
   cx.translate(bx, by);
   cx.rotate(Math.atan(slope) * 0.7 + Math.sin(t*18) * 0.07 * boatRock);
+  cx.scale(bz, bz);
   const bc = S.skin.boat === 'boatGold' ? ['#e8b23a','#a97c15']
     : S.skin.boat === 'boatDuck' ? ['#ffd83a','#e8891a'] : ['#8a5a33','#6e4526'];
-  cx.fillStyle = bc[0];
-  cx.beginPath(); cx.moveTo(-40, 0); cx.lineTo(40, 0); cx.lineTo(27, 15); cx.lineTo(-27, 15); cx.closePath(); cx.fill();
-  cx.fillStyle = bc[1]; cx.fillRect(-40, 0, 80, 4);
-  cx.fillStyle = '#333';
-  cx.beginPath(); cx.arc(-8, -14, 5, 0, 7); cx.fill();
-  cx.fillRect(-11, -10, 6, 11);
+  cx.fillStyle = bc[0];   // 5 m hull = 250 world px
+  cx.beginPath(); cx.moveTo(-125, 0); cx.lineTo(125, 0); cx.lineTo(85, 45); cx.lineTo(-85, 45); cx.closePath(); cx.fill();
+  cx.fillStyle = bc[1]; cx.fillRect(-125, 0, 250, 12);
+  cx.fillStyle = '#333';  // 1.8 m angler
+  cx.beginPath(); cx.arc(-25, -44, 16, 0, 7); cx.fill();
+  cx.fillRect(-34, -30, 20, 32);
   // caught fish piled on the deck
   stashPile.forEach((p, i) => {
     cx.save();
-    cx.translate(-28 + (i%5)*11, -3 - Math.floor(i/5)*6);
+    cx.translate(-88 + (i%5)*34, -8 - Math.floor(i/5)*18);
     cx.rotate(i%2 ? 0.5 : -0.45);
-    cx.scale(0.9, 0.9);
+    cx.scale(2.6, 2.6);
     drawShape(cx, p.size, p.color, 0);
     cx.restore();
   });
   cx.restore();
   // rod: skin per Spinning tier (Rusty→…→Legendary glow) or cosmetic override; flexes on cast/reel
-  const rt = rodTipPos(), tipY = rt.y - camY;
+  const rt = rodTipPos(), tipY = sy(rt.y);
   const rodSkin = S.skin.rod === 'rodCandy' ? { rod:'#ff6fa5', trim:'#ffffff' } : spinParams(S.lv.spin);
   if (rodSkin.glow) cx.drawImage(SPR.glowGold, rt.x - 24, tipY - 24, 48, 48);
   cx.strokeStyle = rodSkin.rod; cx.lineWidth = 3; cx.lineCap = 'round';
   cx.beginPath();
-  cx.moveTo(bx - 6, by - 9);
-  cx.quadraticCurveTo(bx + 9, by - 27 + rodFlex*9, rt.x, tipY);
+  cx.moveTo(bx - 20*bz, by - 8*bz);
+  cx.quadraticCurveTo(bx + 30*bz, by + (-90 + rodFlex*28)*bz, rt.x, tipY);
   cx.stroke();
   if (rodSkin.trim){
     cx.strokeStyle = rodSkin.trim; cx.lineWidth = 1;
     cx.beginPath();
-    cx.moveTo(bx - 6, by - 10);
-    cx.quadraticCurveTo(bx + 9, by - 28 + rodFlex*9, rt.x, tipY - 1);
+    cx.moveTo(bx - 20*bz, by - 10*bz);
+    cx.quadraticCurveTo(bx + 30*bz, by + (-93 + rodFlex*28)*bz, rt.x, tipY - 1);
     cx.stroke();
   }
 }
 function drawRays(t){
-  const surf = -camY;
+  const surf = sy(0);
   const fade = clamp(1 - (camY + 120)/800, 0, 1);
   if (fade <= 0.02 || surf < -520) return;
   cx.fillStyle = '#bfe9ff';
@@ -1549,34 +1571,35 @@ function drawRays(t){
     cx.globalAlpha = 0.05 * fade * (0.7 + 0.3*Math.sin(t*0.7 + i*1.4));
     cx.beginPath();
     cx.moveTo(x0, surf); cx.lineTo(x0 + 30, surf);
-    cx.lineTo(x0 + 155, surf + 560); cx.lineTo(x0 + 42, surf + 560);
+    cx.lineTo(x0 + 155, surf + 560*zoom); cx.lineTo(x0 + 42, surf + 560*zoom);
     cx.closePath(); cx.fill();
   }
   cx.globalAlpha = 1;
 }
 function drawCaustics(t){
-  const surf = -camY;
+  const surf = sy(0);
   if (surf < -220) return;
   cx.globalAlpha = 0.09;
-  cx.strokeStyle = '#dff6ff'; cx.lineWidth = 1.5;
+  cx.strokeStyle = '#dff6ff'; cx.lineWidth = 1.5*zoom;
   for (let k = 0; k < 3; k++){
-    const y = surf + 16 + k*17;
+    const y = surf + (16 + k*17)*zoom;
     cx.beginPath();
     for (let x = 0; x <= W; x += 14)
-      cx.lineTo(x, y + Math.sin(x*0.08 + t*(1.5 + k*0.4) + k*2)*3);
+      cx.lineTo(x, y + Math.sin(x*0.08 + t*(1.5 + k*0.4) + k*2)*3*zoom);
     cx.stroke();
   }
-  cx.globalAlpha = 1;
+  cx.globalAlpha = 1; cx.lineWidth = 1;
 }
 function drawFar(){
   cx.globalAlpha = 0.55;
+  const fz = Math.min(zoom, 1.6);
   for (const f of farItems){
-    const py = f.y - camY*0.6;              // slow parallax
-    if (py < -140 || py > H + 100) continue;
+    const py = (f.y - camY*0.6) * zoom;     // slow parallax
+    if (py < -240 || py > H + 200) continue;
     const spr = SPR.far[f.s];
     cx.save();
     cx.translate(f.x, py);
-    cx.scale((f.s === 0 ? f.dir : 1) * f.sc, f.sc);
+    cx.scale((f.s === 0 ? f.dir : 1) * f.sc * fz, f.sc * fz);
     cx.drawImage(spr, -spr.width/2, -spr.height/2);
     cx.restore();
   }
@@ -1587,7 +1610,7 @@ function drawAtmo(){
   if (!atmo) return;
   const a = atmo, p = clamp(a.t / a.life, 0, 1);
   const fade = clamp(Math.sin(p * Math.PI) * 1.5, 0, a.kind === 'shadow' ? 0.55 : 0.8);
-  const py = a.y - camY*0.7;
+  const py = (a.y - camY*0.7) * zoom;
   if (py < -260 || py > H + 260) return;
   cx.save();
   cx.globalAlpha = fade;
@@ -1597,23 +1620,24 @@ function drawAtmo(){
     cx.scale(a.dir*6, 6);
     cx.drawImage(SPR.far[0], -80, -45);
   } else {
-    cx.drawImage(SPR.glowCyan, a.x - 26 - 7, py - 7, 14, 14);
-    cx.drawImage(SPR.glowCyan, a.x + 26 - 7, py - 7, 14, 14);
+    cx.drawImage(SPR.glowCyan, a.x - 60 - 10, py - 10, 20, 20);
+    cx.drawImage(SPR.glowCyan, a.x + 60 - 10, py - 10, 20, 20);
     cx.fillStyle = '#dffff5';
-    cx.beginPath(); cx.arc(a.x - 26, py, 1.8, 0, 7); cx.fill();
-    cx.beginPath(); cx.arc(a.x + 26, py, 1.8, 0, 7); cx.fill();
+    cx.beginPath(); cx.arc(a.x - 60, py, 2.4, 0, 7); cx.fill();
+    cx.beginPath(); cx.arc(a.x + 60, py, 2.4, 0, 7); cx.fill();
   }
   cx.restore();
 }
 function drawNear(t){
+  const nz = Math.min(zoom, 1.3);
   for (const f of nearItems){
-    const py = f.y - camY*1.35;             // fast parallax, in front
-    if (py < -160 || py > H + 160) continue;
+    const py = (f.y - camY*1.35) * zoom;    // fast parallax, in front
+    if (py < -220 || py > H + 220) continue;
     cx.save();
     cx.globalAlpha = 0.18;
     cx.translate(f.x, py);
     const wig = Math.sin(t*6 + f.ph) * 0.25;
-    cx.scale(f.dir, 1);
+    cx.scale(f.dir * nz, nz);
     drawFishParts(cx, f.size, f.color, f.dark, wig);
     cx.restore();
   }
@@ -1624,7 +1648,7 @@ function previewPts(rt, dir, frac){
   const v0 = flightV0(frac);
   let x = rt.x, y = rt.y, vx = dir.x*v0, vy = dir.y*v0, under = false;
   const Sb = Math.max(60, frac * maxDepth());
-  const uv = clamp(Sb*1.5, 250, 1400), k = uv/Sb;
+  const uv = clamp(Sb*1.1, 200, 1500), k = uv/Sb;   // matches waterEntry physics
   for (let i = 0; i < 40; i++){
     const dt = 0.05;
     if (!under){
@@ -1641,23 +1665,23 @@ function previewPts(rt, dir, frac){
   return pts;
 }
 function drawAimUI(t){
-  const rt = rodTipPos(), sx = rt.x, sy = rt.y - camY;
+  const rt = rodTipPos(), sx = rt.x, syr = sy(rt.y);
   const dx = aimCur.x - aimStart.x, dy = aimCur.y - aimStart.y, d = Math.hypot(dx, dy);
   if (d >= 24){
     const dir = clampAim(dx, dy);
     cx.fillStyle = '#ffffff';
     cx.globalAlpha = 0.4;
     for (const p of previewPts(rt, dir, dragFrac)){
-      const py = p.y - camY;
+      const py = sy(p.y);
       if (py > H) break;
       cx.beginPath(); cx.arc(p.x, py, 2, 0, 7); cx.fill();
     }
     cx.globalAlpha = 1;
-    const L = 36 + 96*dragFrac, ex = sx + dir.x*L, ey = sy + dir.y*L;
+    const L = 36 + 96*dragFrac, ex = sx + dir.x*L, ey = syr + dir.y*L;
     cx.strokeStyle = cx.fillStyle = dragFrac > 0.97 ? '#ffd75c' : '#ffe45c';
     cx.lineWidth = 4; cx.lineCap = 'round';
-    cx.beginPath(); cx.moveTo(sx, sy); cx.lineTo(ex, ey); cx.stroke();
-    const a = Math.atan2(ey - sy, ex - sx);
+    cx.beginPath(); cx.moveTo(sx, syr); cx.lineTo(ex, ey); cx.stroke();
+    const a = Math.atan2(ey - syr, ex - sx);
     cx.beginPath(); cx.moveTo(ex + 6*Math.cos(a), ey + 6*Math.sin(a));
     cx.lineTo(ex - 11*Math.cos(a-0.45), ey - 11*Math.sin(a-0.45));
     cx.lineTo(ex - 11*Math.cos(a+0.45), ey - 11*Math.sin(a+0.45));
@@ -1708,6 +1732,12 @@ function frame(now){
   if (rm !== shownM){ shownM = rm; $('money').textContent = fmtMoney(rm); }
   requestAnimationFrame(frame);
 }
+function swim(f, dt, mult){
+  // curved drift: heading wander + speed oscillation (kills straight-line motion)
+  const sp = f.speed * (0.75 + 0.35*Math.sin(animT*0.7 + f.ph*1.7)) * mult;
+  f.x += f.dir * sp * dt;
+  f.y += Math.sin(animT*0.9 + f.ph) * sp * 0.35 * dt;
+}
 function update(dt, rdt){
   if (S.lv.trap > 0 && phase === 'IDLE'){
     trapAcc += trapRate() * dt;
@@ -1730,8 +1760,8 @@ function update(dt, rdt){
   // ambient darkens with depth: low drone fades in past ~700m
   ensureDrone();
   if (drone){
-    const depth = Math.max(0, camY + H*0.38);
-    const tgt = S.muted ? 0 : clamp((depth - 700) / 3500, 0, 1) * 0.055;
+    const depth = Math.max(0, camY + (H*0.38)/zoom);
+    const tgt = S.muted ? 0 : clamp((depth - 30*PX_PER_M) / (120*PX_PER_M), 0, 1) * 0.055;
     drone.gain.value += (tgt - drone.gain.value) * Math.min(1, rdt*2);
   }
   // deepest-water atmosphere events: far-layer only, never interactive
@@ -1740,7 +1770,7 @@ function update(dt, rdt){
     atmo.t += rdt;
     if (atmo.t > atmo.life){ atmo = null; atmoCd = 60; }
   } else if (atmoCd <= 0 && (phase === 'SINK' || phase === 'REEL')
-      && hook.y > Math.max(1800, maxDepth()*0.7) && Math.random() < rdt*0.12){
+      && hook.y > Math.max(150*PX_PER_M, maxDepth()*0.7) && Math.random() < rdt*0.12){
     const shadow = Math.random() < 0.6;
     atmo = { kind: shadow ? 'shadow' : 'eyes', t:0, life: shadow ? 14 : 7,
       x: rnd(60, W-60), y: hook.y + rnd(-120, 220), dir: Math.random() < 0.5 ? -1 : 1 };
@@ -1754,7 +1784,7 @@ function update(dt, rdt){
   if (phase === 'IDLE' || phase === 'AIMING'){
     const rt = rodTipPos();
     hook.x = rt.x + Math.sin(animT*1.6)*3;
-    hook.y = rt.y + 16;
+    hook.y = rt.y + 60;   // dangles ~1.2 m below the tip
     if (phase === 'AIMING'){
       gTheta = gaugeAdvance(gTheta, rdt, GAUGE, spinParams(S.lv.spin).pm);
       dragFrac = clamp(Math.hypot(aimCur.x - aimStart.x, aimCur.y - aimStart.y) / dMax(), 0, 1);
@@ -1795,10 +1825,11 @@ function update(dt, rdt){
     if (hook.y <= 2 || dl < 38) surface();
   }
   // fish — per-archetype steering (cheap rules, no boids)
+  // v5.1: curved, non-linear motion — heading wander + speed oscillation per fish
   const hookSpd = phase === 'SINK' ? Math.hypot(flight.vx, flight.vy)
     : phase === 'REEL' ? reelSpeed() + Math.abs(hook.vx) : 0;
   for (const s of schools){
-    s.x += s.dir * s.speed * dt;
+    s.x += s.dir * s.speed * (0.75 + 0.35*Math.sin(animT*0.7 + s.ph)) * dt;
     if (s.x < -80) s.x = W + 70;
     if (s.x > W + 80) s.x = -70;
     s.y += Math.sin(animT*1.2 + s.ph) * 5 * dt;
@@ -1815,15 +1846,15 @@ function update(dt, rdt){
         }
         break;
       }
-      case 'darter':             // idle-then-burst, quick turns
+      case 'darter':             // bursts kept, idles longer between them (v5.1)
         f.dt2 -= dt;
         if (f.dt2 <= 0){
           f.burst = !f.burst;
-          f.dt2 = f.burst ? rnd(0.25, 0.6) : rnd(0.8, 2.2);
+          f.dt2 = f.burst ? rnd(0.25, 0.6) : rnd(1.6, 3.5);
           if (f.burst){ f.dir = Math.random() < 0.5 ? -1 : 1; f.by = rnd(-30, 30); }
         }
         if (f.burst){ f.x += f.dir*f.speed*3*dt; f.y += (f.by||0)*dt; }
-        else f.x += f.dir*f.speed*0.15*dt;
+        else swim(f, dt, 0.18);
         break;
       case 'drifter':            // jellyfish bob, near-static
         f.x += f.dir*f.speed*0.15*dt;
@@ -1836,23 +1867,21 @@ function update(dt, rdt){
           f.x += dx2/dd * f.speed * 2.2 * dt;
           f.y += dy2/dd * f.speed * 1.2 * dt;
           f.dir = dx2 < 0 ? -1 : 1;
-        } else f.x += f.dir*f.speed*dt;
+        } else swim(f, dt, 1);
         break;
       }
       case 'lurker':             // hugs its band bottom
-        f.x += f.dir*f.speed*0.5*dt;
+        swim(f, dt, 0.5);
         if (f.home) f.y += (f.home - f.y) * Math.min(1, dt*1.5);
         break;
       default:                   // cruisers + specials (chest speed 0)
-        f.x += f.dir * f.speed * dt;
+        swim(f, dt, 1);
     }
     if (f.x < -60) f.x = W + 55;
     if (f.x > W + 60) f.x = -55;
-    if (f.kind !== 'chest' && f.arch !== 'drifter' && f.arch !== 'school')
-      f.y += Math.sin(animT*1.5 + f.ph) * 3 * dt;
     // bioluminescent trail motes (on-screen fish only)
     if (f.bio && Math.random() < rdt*1.5){
-      const py = f.y - camY;
+      const py = sy(f.y);
       if (py > -40 && py < H + 40)
         particles.push({ x:f.x - f.dir*f.size, y:f.y, vx:rnd(-8,8), vy:rnd(-14,-4), life:rnd(0.6,1.1), t:0, color:'#a0ffe9aa', bub:true });
     }
@@ -1878,8 +1907,13 @@ function update(dt, rdt){
   // decoration drift
   for (const f of farItems) if (f.s === 0){ f.x += f.dir*f.spd*dt; if (f.x < -120) f.x = W+110; if (f.x > W+120) f.x = -110; }
   for (const f of nearItems){ f.x += f.dir*f.spd*dt; if (f.x < -140) f.x = W+130; if (f.x > W+140) f.x = -130; }
-  // camera
-  const targetCam = (phase==='SINK'||phase==='REEL') ? hook.y - H*0.38 : (phase==='FLIGHT' ? -150 : -120);
+  // camera + exploration zoom: idle/aiming frames the reachable depth; casting zooms toward 1:1
+  const zBase = zoomFor(maxDepth(), H - 100);
+  const zTarget = (phase === 'IDLE' || phase === 'AIMING') ? zBase : clamp(zBase, 0.45, 0.7);
+  const zr = zTarget < zoom ? 4.5 : 1.8;   // zoom out fast for action, zoom in slow (spool reveal savored)
+  zoom += (zTarget - zoom) * Math.min(1, rdt*zr);
+  const targetCam = (phase==='SINK'||phase==='REEL') ? hook.y - (H*0.38)/zoom
+    : (phase==='FLIGHT' ? -200/zoom : -110/zoom);
   camY += (targetCam - camY) * Math.min(1, dt*6);
   shake = Math.max(0, shake - rdt*22);
   // particles
@@ -1901,8 +1935,8 @@ function update(dt, rdt){
 function draw(t){
   cx.save();
   if (shake > 0) cx.translate(rnd(-shake,shake), rnd(-shake,shake));
-  // water gradient (smoother: 3 samples)
-  const topY = camY, botY = camY + H;
+  // water gradient (smoother: 3 samples across the zoomed viewport)
+  const topY = camY, botY = camY + H/zoom;
   const grad = cx.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, waterColor(Math.max(0, topY)));
   grad.addColorStop(0.5, waterColor(Math.max(0, (topY+botY)/2)));
@@ -1915,10 +1949,10 @@ function draw(t){
   drawAtmo();
   // faint band boundary lines (no labels — hyper-casual)
   BANDS.forEach(b => {
-    const sy = b.to - camY;
-    if (sy > -10 && sy < H+10 && b.to <= maxDepth()+250){
+    const by2 = sy(b.to);
+    if (by2 > -10 && by2 < H+10 && b.to <= maxDepth()*1.25){
       cx.strokeStyle = '#ffffff12'; cx.lineWidth = 1;
-      cx.beginPath(); cx.moveTo(0, sy); cx.lineTo(W, sy); cx.stroke();
+      cx.beginPath(); cx.moveTo(0, by2); cx.lineTo(W, by2); cx.stroke();
     }
   });
   // ambient bubbles
@@ -1933,12 +1967,12 @@ function draw(t){
   // curved line + hook
   {
     const rt = rodTipPos();
-    const rx = rt.x, ry = rt.y - camY;
-    const hx = hook.x, hy = hook.y - camY;
+    const rx = rt.x, ry = sy(rt.y);
+    const hx = hook.x, hy = sy(hook.y);
     // Better Line look: rope tier steps every 3 levels; Rainbow skin overrides; taut under strain
     const strain = clamp(castW / maxWeight(), 0, 1);
     const taut = (phase === 'REEL' || phase === 'SINK') ? strain : 0;
-    const sag = phase === 'REEL' ? 5*(1 - taut*0.9) : (phase === 'IDLE' || phase === 'AIMING') ? 10 : 18;
+    const sag = (phase === 'REEL' ? 5*(1 - taut*0.9) : (phase === 'IDLE' || phase === 'AIMING') ? 10 : 18) * zoom;
     const lt = Math.min(4, Math.floor(S.lv.line/3));
     cx.strokeStyle = S.skin.line === 'lineRainbow' ? 'hsl(' + Math.round((t*80) % 360) + ',80%,70%)'
       : taut > 0.7 ? '#ffb3a7'
@@ -1952,22 +1986,23 @@ function draw(t){
     cx.save();
     cx.translate(hx, hy);
     cx.rotate(tilt);
-    // the selected lure, visibly on the hook — distinct icon per type
+    cx.scale(zoom, zoom);
+    // the selected lure, visibly on the hook — distinct icon per type (hook ≈ 0.5 m of kit)
     const curLure = (phase === 'IDLE' || phase === 'AIMING') ? activeLure() : castLure;
-    cx.font = '12px system-ui'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
-    cx.fillText(LURES[curLure].ic, 0, -11);
+    cx.font = '28px system-ui'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.fillText(LURES[curLure].ic, 0, -26);
     cx.textBaseline = 'alphabetic'; cx.textAlign = 'left';
     cx.fillStyle = 'rgba(255,255,255,' + (0.35 + 0.35*Math.sin(t*9)) + ')';
-    cx.beginPath(); cx.arc(4, -15, 1.2, 0, 7); cx.fill();     // lure flash
-    cx.strokeStyle = '#e8e8e8'; cx.lineWidth = 2.2; cx.lineCap = 'round';
-    cx.beginPath(); cx.moveTo(0, -5); cx.lineTo(0, 3); cx.stroke();
-    cx.beginPath(); cx.arc(3, 3, 4.2, Math.PI*0.9, Math.PI*2.1); cx.stroke();
-    cx.beginPath(); cx.moveTo(6.6, 0.4); cx.lineTo(5.2, 2.2); cx.stroke(); // barb
+    cx.beginPath(); cx.arc(9, -34, 3, 0, 7); cx.fill();       // lure flash
+    cx.strokeStyle = '#e8e8e8'; cx.lineWidth = 5; cx.lineCap = 'round';
+    cx.beginPath(); cx.moveTo(0, -12); cx.lineTo(0, 8); cx.stroke();
+    cx.beginPath(); cx.arc(7.5, 8, 10.5, Math.PI*0.9, Math.PI*2.1); cx.stroke();
+    cx.beginPath(); cx.moveTo(16.4, 1); cx.lineTo(13, 5.5); cx.stroke(); // barb
     cx.restore();
     // caught fish dangling
     caught.forEach((f, i) => {
       f.x = hook.x + Math.sin(t*6 + i*1.7) * 8;
-      f.y = hook.y + 14 + i*11;
+      f.y = hook.y + 34 + i*26;
       drawFish(f, t);
     });
     // combo chain meter on hook
@@ -1982,7 +2017,7 @@ function draw(t){
     // depth readout + line-strain meter
     if (phase === 'SINK' || phase === 'REEL'){
       cx.fillStyle = '#ffffffcc'; cx.font = 'bold 12px system-ui'; cx.textAlign = 'left';
-      cx.fillText(Math.round(Math.max(0,hook.y)) + 'm ' + (phase==='SINK'?'⬇':'⬆'), hx + 14, hy - 8);
+      cx.fillText(Math.round(Math.max(0,hook.y)/PX_PER_M) + 'm ' + (phase==='SINK'?'⬇':'⬆'), hx + 14, hy - 8);
       if (castW > 0 || strainFlash > 0.05){
         const frac = clamp(castW / maxWeight(), 0, 1), bw = 34;
         cx.fillStyle = '#000a'; cx.fillRect(hx - bw/2 - 1, hy + 17, bw + 2, 7);
@@ -1999,11 +2034,11 @@ function draw(t){
     if (fl.t < 0) continue;
     const p = Math.min(1, fl.t/0.55), bx2 = HOME();
     const x = fl.fx + (bx2 - fl.fx)*p;
-    const y = -6 + (-16 + 6)*p - Math.sin(p*Math.PI)*72;
+    const y = -6 + (-30 + 6)*p - Math.sin(p*Math.PI)*72/zoom;
     cx.save();
-    cx.translate(x, y - camY);
+    cx.translate(x, sy(y));
     cx.rotate(fl.t * fl.spin);
-    const sc = 0.85 + 0.35*Math.sin(p*Math.PI);
+    const sc = (0.85 + 0.35*Math.sin(p*Math.PI)) * Math.min(zoom, 2);
     cx.scale(sc, sc);
     if (fl.f.emoji){
       cx.font = (fl.f.size*1.6) + 'px system-ui';
@@ -2019,13 +2054,13 @@ function draw(t){
   for (const p of particles){
     cx.globalAlpha = (1 - p.t / p.life) * (p.ring ? 0.6 : 1);
     if (p.ring){
-      const r = (8 + 80 * p.t/p.life) * p.sc;
+      const r = (8 + 80 * p.t/p.life) * p.sc * zoom;
       cx.strokeStyle = p.color; cx.lineWidth = 2;
-      cx.beginPath(); cx.ellipse(p.x, -camY, r, r*0.26, 0, 0, 7); cx.stroke();
+      cx.beginPath(); cx.ellipse(p.x, sy(0), r, r*0.26, 0, 0, 7); cx.stroke();
     } else {
       cx.fillStyle = p.color;
-      const py = p.screen ? p.y : p.y - camY;
-      cx.beginPath(); cx.arc(p.x, py, 3, 0, 7); cx.fill();
+      const py = p.screen ? p.y : sy(p.y);
+      cx.beginPath(); cx.arc(p.x, py, p.screen ? 3 : 3*Math.min(zoom, 2), 0, 7); cx.fill();
     }
   }
   cx.globalAlpha = 1;
@@ -2053,6 +2088,8 @@ for (let i = 0; i < Math.min(S.stash.n, 10); i++)
   stashPile.push({ color:['#9fd1b3','#7fb6d9','#e8d08a'][i%3], size:6 });
 refreshUI(); refreshShop(); refreshBars();
 if (S.museumNew) $('collBtn').classList.add('unread');
+zoom = zoomFor(maxDepth(), H - 100);   // start already framed to reach (no boot lerp)
+camY = -110/zoom;
 hint(S.casts < 3 ? 'Hold & drag anywhere to aim your cast' : '');
 spawnFish();
 requestAnimationFrame(frame);
