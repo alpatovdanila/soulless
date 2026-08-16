@@ -287,7 +287,15 @@ const SMELLY = { discovery:0, daily:0, negotiateP:0.08, magnetP:0.04, rewardAd:1
 const sinkV0 = reelSp => 2 * reelSp;   // descent = exactly 2× the ascent, at any depth
 // v6 turnaround (distance-based; speeds are zoom-live so no precomputed timeline):
 // cruise → ~1 s sine ease-down into the stop → beat → ~2 s smoothstep accel into the reel.
-const SINK_DECEL_T = 1.8, REEL_RAMP_T = 2.0;   // end-ease and pull-away, both in SCREEN time (generous, must be FELT)
+const REEL_RAMP_T = 2.0;
+// v6.7 TIME-based descent: a full-power cast lands in sinkDurFor() seconds at ANY depth —
+// 3 s base, diminishing log bonus with depth, 5 s asymptote at ~10 km. Speed is derived.
+// 20m→3.0s · 100m→3.1s · 500m→3.5s · 10km→5s (user-specified curve)
+const SINK_CRUISE = 0.55;   // fraction of the time at cruise; the rest is the cosine ease-down
+const sinkDurFor = m => {
+  const u = clamp(Math.log(Math.max(m, 20)/20)/Math.log(500), 0, 1);
+  return 3 + 2*Math.pow(u, 2.2);
+};
 // v5.14 vertical joystick pacing on the reel: finger above center = a bit faster up,
 // below = a bit slower (±25%, same deadzone as the horizontal axis)
 const reelPace = offY => Math.abs(offY) < 6 ? 1 : 1 - 0.12*clamp(offY/60, -1, 1); // gentle ±12%
@@ -339,8 +347,8 @@ const earnPM = lv => 45 * Math.pow(1.16, lv);
 // fish density per band — v5.5: shallow water is SOUP. A cast should essentially never come
 // back empty: cheap schoolers fill the line; skill/depth decides VALUE, not whether you catch.
 function bandQuota(bi, from, to, nBands){
-  const dens = 1.15 - 0.6*bi/((nBands || 8) - 1);
-  const base = clamp(Math.round((to - from)/30) + 5, 8, 26) * dens;
+  const dens = Math.max(0.6, 1.15 - 0.6*bi/((nBands || 8) - 1));   // v6.8: deep floor — the abyss lives
+  const base = clamp(Math.round((to - from)/30) + 5, 8, 34) * dens;
   const shallowBonus = bi === 0 ? 14 : bi === 1 ? 8 : 0;
   return Math.max(4, Math.round(base + shallowBonus));
 }
@@ -436,6 +444,7 @@ const SPECIALS = [
   { name:'Treasure Chest', emoji:'🧰', size:16 },
   { name:'Old Boot', emoji:'🥾', size:13 },
   { name:'Leviathan', emoji:'🐉', size:30 },
+  { name:'Giant', color:'#7fd8a8', size:40 },
   { name:'Amphora', emoji:'🏺', size:15 },
   { name:'Royal Crown', emoji:'👑', size:15 },
   { name:'Stone Idol', emoji:'🗿', size:16 },
@@ -516,7 +525,7 @@ const reelSpeed  = () => reelScr() / Math.max(zoom, 0.02); // world px/s, derive
 
 /* ============ audio + haptics ============ */
 let AC = null;
-function ac(){ if (!AC) AC = new (window.AudioContext||window.webkitAudioContext)(); if (AC.state==='suspended') AC.resume(); return AC; }
+function ac(){ if (!AC){ AC = new (window.AudioContext||window.webkitAudioContext)(); sndLoad(); } if (AC.state==='suspended') AC.resume(); return AC; }
 function beep(freq, dur=0.1, type='sine', vol=0.12, when=0, slide=0){
   if (S.muted) return;
   try {
@@ -549,6 +558,35 @@ function noise(dur=0.2, vol=0.1, freq=1000, q=1, when=0, slide=0){
   } catch(e){}
 }
 function vib(p){ try { if (navigator.vibrate) navigator.vibrate(p); } catch(e){} } // silent no-op (iOS Safari etc)
+/* ============ sampled SFX (resources/sound-pack) — lazy-loaded, synth fallback ============ */
+const SND = {
+  whoosh1:'sfx/whoosh_1.wav', whoosh2:'sfx/whoosh_2.wav', splash:'sfx/water_splashing.wav',
+  perfect:'sfx/xylophone_chime_positive.wav', good:'sfx/xylophone_chime_quick.wav',
+  coin1:'sfx/coin.wav', coin2:'sfx/coin_2.wav', coin3:'sfx/coin_3.wav', coin4:'sfx/coin_4.wav',
+  gather:'sfx/coins_gather_medium.wav', clang:'sfx/metal_clang.wav', thud:'sfx/clothing_thud.wav',
+  upgrade:'sfx/weapon_upgrade.wav', powerup:'sfx/power_up.wav', horror:'sfx/horror_sting.wav',
+  error:'sfx/synth_error.wav', zipup:'sfx/zipper_up.wav', zipdown:'sfx/zipper_down.wav',
+  toggle:'sfx/toggle_on.wav', complete:'sfx/xylophone_level_complete.wav', bells:'sfx/jingle_bells_1.wav',
+  pop1:'sfx/pop_1.wav', pop2:'sfx/pop_2.wav', pop3:'sfx/pop_3.wav', pop4:'sfx/pop_4.wav',
+};
+for (let i = 1; i <= 10; i++) SND['x'+i] = 'sfx/match_xylophone_' + (i === 10 ? '10_MAX' : i) + '.wav';
+const SBUF = {}; let sndLoading = false;
+function sndLoad(){
+  if (sndLoading) return; sndLoading = true;
+  for (const k of Object.keys(SND))
+    fetch(SND[k]).then(r => r.arrayBuffer()).then(b => AC.decodeAudioData(b))
+      .then(buf => { SBUF[k] = buf; }).catch(() => {});
+}
+function sPlay(k, vol = 0.5, rate = 1){
+  if (S.muted || !SBUF[k]) return false;
+  try {
+    const a = ac(), src = a.createBufferSource(), g = a.createGain();
+    src.buffer = SBUF[k]; src.playbackRate.value = rate;
+    g.gain.value = vol; src.connect(g); g.connect(a.destination); src.start();
+    return true;
+  } catch(e){ return false; }
+}
+const sAny = (ks, vol, rate) => sPlay(ks[Math.floor(Math.random()*ks.length)], vol, rate);
 // abyssal drone: low detuned pair; gain driven by camera depth in the main loop
 let drone = null;
 function ensureDrone(){
@@ -562,14 +600,15 @@ function ensureDrone(){
     drone = g;
   } catch(e){}
 }
+// sample-first, synth fallback while buffers decode
 const sfx = {
-  cast:   () => { noise(0.32, 0.22, 380, 1.1, 0, 2200); beep(500,0.28,'sine',0.07,0,-380); }, // meaty WHOOSH
-  perfect:() => [880,1108,1318].forEach((f,i)=>beep(f,0.1,'triangle',0.12,i*0.05)),
-  good:   () => { beep(740,0.08,'triangle',0.11); beep(988,0.12,'triangle',0.11,0.06); },
-  hook:   ch => { const p = Math.pow(1.06, Math.min(ch||1,9));            // soft watery plip, pitch ladder kept
-    beep(420*p, 0.11, 'sine', 0.13, 0, 340*p); beep(880*p, 0.05, 'triangle', 0.045, 0.02, 240); },
-  chach:  () => { beep(1318,0.07,'triangle',0.12); beep(1760,0.12,'triangle',0.12,0.06); },
-  sell:   (amt, step) => { // cha-ching cascade scaling with the amount; step paces the ceremony
+  cast:   () => { sAny(['whoosh1','whoosh2'], 0.6) || (noise(0.32,0.22,380,1.1,0,2200), beep(500,0.28,'sine',0.07,0,-380)); },
+  perfect:() => { sPlay('perfect', 0.6) || [880,1108,1318].forEach((f,i)=>beep(f,0.1,'triangle',0.12,i*0.05)); },
+  good:   () => { sPlay('good', 0.55) || (beep(740,0.08,'triangle',0.11), beep(988,0.12,'triangle',0.11,0.06)); },
+  hook:   ch => { sPlay('x'+clamp(ch||1,1,10), 0.5) ||                    // xylophone combo ladder 1→10
+    beep(420*Math.pow(1.06,Math.min(ch||1,9)), 0.11, 'sine', 0.13, 0, 340); },
+  chach:  () => { sAny(['coin1','coin2','coin3','coin4'], 0.4) || (beep(1318,0.07,'triangle',0.12), beep(1760,0.12,'triangle',0.12,0.06)); },
+  sell:   (amt, step) => { if (sPlay('gather', 0.6)) return;
     step = step || 0.08;
     const n = clamp(3 + Math.floor(Math.log10(Math.max(10, amt))), 3, 9);
     for (let i = 0; i < n; i++){
@@ -578,14 +617,16 @@ const sfx = {
     }
     beep(520, 0.3, 'triangle', 0.1, n*step, 260);
   },
-  plop:   () => beep(320, 0.09, 'sine', 0.12, 0, -160),
-  clunk:  () => { beep(180,0.08,'square',0.12); beep(120,0.1,'square',0.1,0.07); },
-  bloop:  () => beep(220,0.25,'sine',0.12,0,-160),
-  buy:    () => [523,659,784,1047].forEach((f,i)=>beep(f,0.09,'triangle',0.1,i*0.06)),
-  gold:   () => [880,1108,1318,1760,2093].forEach((f,i)=>beep(f,0.1,'sine',0.1,i*0.05)),
-  levi:   () => { beep(80,0.7,'sawtooth',0.14,0,-40); [220,277,330,440].forEach((f,i)=>beep(f,0.25,'triangle',0.12,0.15+i*0.12)); },
-  err:    () => beep(120,0.18,'sawtooth',0.1),
-  splash: () => { beep(130,0.18,'sine',0.16,0,-80); noise(0.3, 0.2, 900, 0.8, 0, -650); }, // thump + droplets
+  plop:   () => { sAny(['pop1','pop2','pop3','pop4'], 0.45) || beep(320, 0.09, 'sine', 0.12, 0, -160); },
+  clunk:  () => { sPlay('clang', 0.45) || (beep(180,0.08,'square',0.12), beep(120,0.1,'square',0.1,0.07)); },
+  bloop:  () => { sPlay('thud', 0.55) || beep(220,0.25,'sine',0.12,0,-160); },
+  buy:    () => { sPlay('upgrade', 0.55) || [523,659,784,1047].forEach((f,i)=>beep(f,0.09,'triangle',0.1,i*0.06)); },
+  gold:   () => { sPlay('powerup', 0.5) || [880,1108,1318,1760,2093].forEach((f,i)=>beep(f,0.1,'sine',0.1,i*0.05)); },
+  levi:   () => { sPlay('horror', 0.7) || (beep(80,0.7,'sawtooth',0.14,0,-40), [220,277,330,440].forEach((f,i)=>beep(f,0.25,'triangle',0.12,0.15+i*0.12))); },
+  err:    () => { sPlay('error', 0.5) || beep(120,0.18,'sawtooth',0.1); },
+  splash: () => { sPlay('splash', 0.65) || (beep(130,0.18,'sine',0.16,0,-80), noise(0.3, 0.2, 900, 0.8, 0, -650)); },
+  claim:  () => { sPlay('complete', 0.6) || sfx.buy(); },
+  daily:  () => { sPlay('bells', 0.55) || sfx.buy(); },
 };
 
 /* ============ canvas + prerendered sprites ============ */
@@ -682,8 +723,9 @@ const sy = y => (y - camY) * zoom;   // world-y → screen-y (exploration zoom)
 // Interaction radii are world-space (slightly forgiving vertically at high zoom); revisit only on feel complaints.
 let aimStart = null, aimCur = null, gTheta = 0, dragFrac = 0;
 let flight = { vx:0, vy:0 }, sinkMaxY = 0, castTravel = 0;
-let sinkLeft = 0, sinkDir = {x:0, y:1}, touched = false, touchT = 0; // v6 distance-based sink
+let sinkTotal = 0, sinkDur = 3, sinkT = 0, sinkDir = {x:0, y:1}, touched = false, touchT = 0; // v6.7 TIME-based sink
 let hkPX = 0, hkPY = 0; // hook position at frame start — swept catch test (fast reels tunnel otherwise)
+let camAnch = 0.30;     // eased camera anchor — glides between the sink/reel targets, never snaps
 let perfectCast = false, castValM = 1;
 let jsActive = false, jsC = {x:0,y:0}, jsX = 0, jsY = 0;
 let rodFlex = 0, lineLag = 0;
@@ -818,6 +860,14 @@ function churn(dt){
   if (churnT > 0) return;
   churnT = 1.2;
   fishes = fishes.filter(f => !f.caught);
+  // v6.8 GIANT: a rare roaming monster — half the screen wide at any zoom, Line-gating weight
+  if (maxDepth() >= 60*PX_PER_M && !fishes.some(f => f.kind === 'giant') && Math.random() < 0.012){
+    const gy = rnd(0.35, 0.8)*maxDepth();
+    const gb = bandAt(gy), gavg = (gb.fish[0][3] + gb.fish[0][4])/2;
+    fishes.push({ kind:'giant', name:'Giant', color:'#7fd8a8', dark:'#123a28', size:200,
+      val:Math.round(gavg*25), x:Math.random()<0.5 ? -60 : W+60, y:gy, home:gy, arch:'cruiser',
+      rtier:2, dir:Math.random()<0.5?-1:1, speed:34, ph:rnd(0,7), caught:false });
+  }
   const reach = maxDepth()*1.15 + 40;
   const casting = phase !== 'IDLE' && phase !== 'AIMING';
   const qMul = (casting && castLure === 'smelly') ? 1.35 : 1; // smelly = spawn-rate boost, never a swap
@@ -1052,9 +1102,11 @@ function beginSink(){
   const dx0 = castDirG.x, dy0 = Math.max(0.05, castDirG.y);
   const dn = Math.hypot(dx0, dy0);
   sinkDir = { x: dx0/dn, y: dy0/dn };
-  sinkLeft = Math.max(30, castTravel - HOP.s);
+  sinkTotal = Math.max(30, castTravel - HOP.s);
+  sinkDur = sinkDurFor(sinkTotal/PX_PER_M);
+  sinkT = 0;
   touched = false; touchT = 0;
-  const v00 = sinkV0(reelSpeed());
+  const v00 = sinkTotal/(0.8365*sinkDur);   // cruise speed s.t. the eased profile integrates to sinkTotal
   flight.vx = sinkDir.x*v00; flight.vy = sinkDir.y*v00;
   sinkMaxY = Math.max(0, hook.y);
   phase = 'SINK';
@@ -1074,22 +1126,23 @@ function startReel(){
 }
 $('spoolBtn').addEventListener('click', () => {
   if (phase === 'SINK'){          // bail out mid-descent: cut straight to the turnaround, fast
-    sinkLeft = 0; spoolUp = true;
+    sinkT = sinkDur; spoolUp = true;
     $('spoolBtn').classList.add('on');
   } else if (phase === 'REEL'){
     spoolUp = !spoolUp;
     $('spoolBtn').classList.toggle('on', spoolUp);
   } else return;
-  noise(0.28, 0.16, 700, 1.4, 0, spoolUp ? 1800 : -400);   // line-zip up / ease-off down
+  sPlay(spoolUp ? 'zipup' : 'zipdown', 0.55) || noise(0.28, 0.16, 700, 1.4, 0, spoolUp ? 1800 : -400);
   vib(12);
 });
-function engageSpoolUp(){        // auto: the moment the line hits max weight, reel in fast
+function engageSpoolUp(quiet){   // auto: the moment the line hits max weight, reel in fast
   if (spoolUp) return;
   spoolUp = true;
   $('spoolBtn').classList.add('on');
-  if (phase === 'SINK') sinkLeft = 0;
-  snack('⏫', 'Line full — reeling in!');
-  noise(0.28, 0.16, 700, 1.4, 0, 1800); vib([15, 25, 15]);
+  if (phase === 'SINK') sinkT = sinkDur;
+  // no "full" banner — the wind-up sound + button state ARE the telegraph
+  sPlay('zipup', 0.55) || noise(0.28, 0.16, 700, 1.4, 0, 1800);
+  vib(quiet ? 12 : [15, 25, 15]);
 }
 function museumDot(){
   S.museumNew = true;
@@ -1099,7 +1152,7 @@ function catchFish(f){
   const w = weightOf(f.size, f.kind, f.rtier);
   if (castW + w > maxWeight()){ strainFlash = 1; return; }  // line at its limit — hooking stops
   castW += w;
-  if (castW >= maxWeight()*0.995) engageSpoolUp();   // full line = automatic fast reel-in
+  if (castW >= maxWeight()*0.995) engageSpoolUp(true);   // full line = automatic fast reel-in (silent wind-up)
   f.caught = true;
   if (animT - lastCatchT <= COMBO_WIN) chain++; else chain = 1;
   lastCatchT = animT;
@@ -1125,6 +1178,11 @@ function catchFish(f){
   }
   else if (f.kind === 'crate'){ sfx.gold(); shake = 6; snack('📦', 'Sunken crate! +' + fmtMoney(f.val)); museumDot(); }
   else if (f.kind === 'boot'){ sfx.bloop(); snack('🥾', 'An old boot. Fashion?'); }
+  else if (f.kind === 'giant'){
+    sfx.gold(); shake = 10;
+    banner('🐋 GIANT!', '#7fd8a8', 32);
+    burst(hook.x, hook.y, '#7fd8a8', 24);
+  }
   else if (f.kind === 'levi'){
     sfx.levi(); shake = 14; tScale = 0.3;
     banner('🐉 LEVIATHAN!!', '#ff8f5f', 34);
@@ -1284,7 +1342,7 @@ for (const k of LURE_KEYS){
   slotEl(k).addEventListener('click', () => {
     if (!(S.lures[k] > 0) || S.lureSel === k) return;
     S.lureSel = k;
-    beep(700, 0.06, 'square', 0.1);
+    sPlay('toggle', 0.5) || beep(700, 0.06, 'square', 0.1);
     popEl(slotEl(k));
     refreshBars(); save();
   });
@@ -1433,7 +1491,7 @@ function claimMission(i){
       flyIcon(LURES[m.rw.l[0]].ic, mr.left + 20, mr.top + 20, $('slot-' + m.rw.l[0]), 0.1*k);
   }
   snack('🎯', m.t + ' → ' + rwTxt);
-  sfx.buy(); burst(W/2, H*0.3, '#7fdc7f', 14, true); vib([15, 20, 15]);
+  sfx.claim(); burst(W/2, H*0.3, '#7fdc7f', 14, true); vib([15, 20, 15]);
   S.missions[i] = genMission();
   missionDot(); save(); renderMissions();
 }
@@ -1549,7 +1607,8 @@ function refreshBars(){
   $('adrow').style.display = idle ? 'flex' : 'none';
   $('actionrow').style.display = idle ? 'flex' : 'none';
   $('lureRow').style.display = idle ? 'flex' : 'none';
-  $('spoolBtn').style.display = (phase === 'REEL' || phase === 'SINK') ? '' : 'none';
+  // 'block', NOT '' — an empty inline value falls back to the stylesheet's display:none
+  $('spoolBtn').style.display = (phase === 'REEL' || phase === 'SINK') ? 'block' : 'none';
   if (phase !== 'REEL' && phase !== 'SINK'){ spoolUp = false; $('spoolBtn').classList.remove('on'); }
   $('lureAdBtn').style.display = (S.lures.smelly||0) < 5 ? '' : 'none';
   // radio slots: all lure types side-by-side, active highlighted
@@ -1717,7 +1776,7 @@ $('dailyBtn').addEventListener('click', () => {
   S.daily = new Date().toDateString();
   const amt = Math.max(50, Math.ceil(upgCost('spool') * 0.3));
   addMoney(amt); addLure('simple', 2);   // v6.5: daily pays the workhorse lure, not the treat
-  sfx.buy(); burst(W/2, 60, '#ffd75c', 16, true);
+  sfx.daily(); burst(W/2, 60, '#ffd75c', 16, true);
   snack('🎁', '+' + fmtMoney(amt) + ' +2🐛');
   refreshDaily(); save();
 });
@@ -1811,8 +1870,15 @@ function drawFish(f, t){
   cx.save();
   cx.translate(f.x, py);
   cx.scale(zoom, zoom);
+  // v6.8 GIANT: reads at half the screen width no matter the zoom
+  if (f.kind === 'giant') { const gb2 = Math.max(1, (W*0.5)/(f.size*2*Math.max(zoom, 0.02))); cx.scale(gb2, gb2); }
   if (f.emoji){
-    // v6: SPECIALS MUST POP — every special catchable glows harder than any fish
+    // v6.8: specials keep a MINIMUM SCREEN size — zoom can never shrink them (or their glows)
+    // below readability; the boost happens inside the zoom scale so world position is untouched
+    const minScr = f.kind === 'levi' ? 130 : 38;
+    const bs = Math.max(1, minScr/(f.size*2*Math.max(zoom, 0.02)));
+    cx.scale(bs, bs);
+    // SPECIALS MUST POP — every special catchable glows harder than any fish
     if (f.kind === 'levi'){
       cx.globalAlpha = 0.75 + 0.25*Math.sin(t*3 + f.ph);
       cx.drawImage(SPR.glowRed, -130, -130, 260, 260);   // apex encounter: reads across the screen
@@ -1962,6 +2028,23 @@ function drawSky(t){
     cx.restore();
   });
   cx.restore();
+  // v6.8: the Trap is VISIBLE — a cage on a rope off the stern, quietly earning idle money
+  if (S.lv.trap > 0){
+    const tx = bx - 150, tyW = 140 + Math.sin(t*0.8)*8, tyS = sy(tyW);
+    cx.strokeStyle = '#d8c9a8aa'; cx.lineWidth = 1.5;
+    cx.beginPath(); cx.moveTo(bx - 60*bz, by + 8*bz); cx.lineTo(tx, tyS - 18*zoom); cx.stroke();
+    cx.save();
+    cx.translate(tx, tyS); cx.scale(Math.max(zoom, 0.5), Math.max(zoom, 0.5));
+    cx.rotate(Math.sin(t*0.8 + 1)*0.07);
+    const cw = 46 + 4*Math.min(S.lv.trap, 10);
+    cx.fillStyle = '#3a2b18cc'; cx.fillRect(-cw/2, -18, cw, 36);
+    cx.strokeStyle = '#c9a86a'; cx.lineWidth = 2.5; cx.strokeRect(-cw/2, -18, cw, 36);
+    for (let gx = -cw/2 + 9; gx < cw/2; gx += 9){ cx.beginPath(); cx.moveTo(gx, -18); cx.lineTo(gx, 18); cx.stroke(); }
+    cx.font = '15px system-ui'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.fillText('🐟', 0, 1);
+    cx.restore();
+    if (Math.random() < 0.012) bubble(tx + rnd(-14, 14), tyW - 10);
+  }
   // rod: skin per Spinning tier (Rusty→…→Legendary glow) or cosmetic override; flexes on cast/reel
   const rt = rodTipPos(), tipY = sy(rt.y);
   const rodSkin = S.skin.rod === 'rodCandy' ? { rod:'#ff6fa5', trim:'#ffffff' } : spinParams(S.lv.spin);
@@ -2260,16 +2343,16 @@ function update(dt, rdt){
   } else if (phase === 'SINK'){
     hkPX = hook.x; hkPY = hook.y;               // swept-catch segment start
     if (!touched){
-      // v6.2: descent at screen-constant speed (2× reel); the ~1 s end ease is computed in
-      // SCREEN px too — otherwise the zoom widening makes m/s accelerate right through it
-      const scr = 2 * reelScr(), zc = Math.max(zoom, 0.02);
-      const dWin = Math.max(20, scr * SINK_DECEL_T * 0.5);
-      const u = clamp(sinkLeft*zc/dWin, 0, 1);
-      const spd0 = (scr * (u >= 1 ? 1 : Math.max(0.05, Math.sin(u * Math.PI/2)))) / zc;
+      // v6.7 TIME-based descent: constant cruise for the first 55% of sinkDur, then a smooth
+      // cosine ease-down to zero — total time is sinkDurFor(depth), total distance exact-ish
+      sinkT += dt;
+      const tau = Math.min(1, sinkT/sinkDur);
+      const v0 = sinkTotal/(0.8365*sinkDur);
+      const spd0 = tau < SINK_CRUISE ? v0
+        : v0 * Math.cos((tau - SINK_CRUISE)/(1 - SINK_CRUISE) * Math.PI/2);
       flight.vx = sinkDir.x*spd0; flight.vy = sinkDir.y*spd0;   // feeds line-lag/tilt/steer caps
       hook.x += flight.vx*dt; hook.y += flight.vy*dt;
-      sinkLeft -= spd0*dt;
-      if (sinkLeft <= 0.5){
+      if (tau >= 1){
         touched = true; touchT = 0.45;                 // the "touched the depth" beat — readable
         flight.vx = 0; flight.vy = 0;
         beep(240, 0.14, 'sine', 0.11, 0, -70); vib(15);
@@ -2395,27 +2478,30 @@ function update(dt, rdt){
       const treasure = f.kind==='chest' || f.kind==='art' || f.kind==='part' || f.kind==='crate';
       if (!(castLure === 'magnet' && !treasure)){  // magnet lure catches NO fish
         const zi3 = 1/Math.max(zoom, 0.02);
-        // point-to-segment distance² from the fish to [frame-start → hook]
+        // CATCH uses the swept segment [frame-start → hook] — fast reels tunnel otherwise
         const sx0 = hkPX, sy0 = hkPY, sdx = hook.x - sx0, sdy = hook.y - sy0;
         const sl2 = sdx*sdx + sdy*sdy;
         const tt = sl2 > 1e-6 ? clamp(((f.x - sx0)*sdx + (f.y - sy0)*sdy)/sl2, 0, 1) : 0;
-        const cxp = sx0 + sdx*tt, cyp = sy0 + sdy*tt;
-        const ddx = f.x - cxp, ddy = f.y - cyp;
+        const ddx = f.x - (sx0 + sdx*tt), ddy = f.y - (sy0 + sdy*tt);
         const d2 = ddx*ddx + ddy*ddy;
         const r = f.size*0.8 + 26*zi3;
+        // …but ATTRACTION is a POINT radius around the hook itself, in SCREEN px (v6.7):
+        // segment-based attraction swept a corridor of water every frame = the hoovering bug
+        const dpx = f.x - hook.x, dpy = f.y - hook.y;
+        const dP2 = dpx*dpx + dpy*dpy;
         // fish that no longer FIT under the weight cap are neither caught nor attracted —
         // no dragging uncatchable fish around; a brush past them just strains the line
         if (castW + weightOf(f.size, f.kind, f.rtier) > maxWeight()){
           if (d2 < r*r) strainFlash = 1;
         } else {
-          let ar = r + 40*zi3, pull = 300*zi3;
-          if (castLure === 'smelly' && !treasure && f.kind !== 'boot'){ ar = r + 80*zi3; pull = 340*zi3; }   // v6.4: no more hoovering the whole screen
-          if (castLure === 'magnet' && treasure){ ar = (r + 40*zi3) * 5; pull = 540*zi3; }
+          let ar = 34*zi3, pull = 300*zi3;                                                      // 34 screen px
+          if (castLure === 'smelly' && !treasure && f.kind !== 'boot'){ ar = 70*zi3; pull = 340*zi3; }  // 70 screen px
+          if (castLure === 'magnet' && treasure){ ar = 170*zi3; pull = 540*zi3; }                       // 170 screen px
           if (d2 < r*r) catchFish(f);
-          else if (d2 < ar*ar){
-            const dd = Math.sqrt(d2) || 1;
-            f.x -= ddx/dd * pull * dt;
-            f.y -= ddy/dd * pull * dt;
+          else if (dP2 < ar*ar){
+            const dd = Math.sqrt(dP2) || 1;
+            f.x -= dpx/dd * pull * dt;
+            f.y -= dpy/dd * pull * dt;
           }
         }
       }
@@ -2435,15 +2521,17 @@ function update(dt, rdt){
     : zClose;
   zoom += (zTarget - zoom) * Math.min(1, rdt*2.5);
   // sink: hook rides the upper third (the window ahead is the decision); reel: hook hugs the
-  // BOTTOM (~78%) so the water above is the reaction/steering room (v6 user ask)
-  const anch = phase === 'SINK' ? 0.30 : 0.78;
+  // BOTTOM (~85%) so the water above is the reaction/steering room. The anchor itself EASES
+  // between phase targets (v6.8) — a snapped anchor made the camera jump at the turnaround.
+  const anchT = phase === 'SINK' ? 0.30 : 0.85;
+  camAnch += (anchT - camAnch) * Math.min(1, dt*2.0);
   // idle/aim/flight: surface sits ~28% down the screen — the boat rides low with sky above,
   // so fly-in arcs and the growing deck pile are never clipped by the top edge
-  let targetCam = (phase==='SINK'||phase==='REEL') ? hook.y - (H*anch)/zoom
+  let targetCam = (phase==='SINK'||phase==='REEL') ? hook.y - (H*camAnch)/zoom
     : -(H*0.28)/zoom;
   const camMin = -(H*0.28)/zoom;   // the camera never rises above its default idle framing
   if (targetCam < camMin) targetCam = camMin;
-  camY += (targetCam - camY) * Math.min(1, dt*6);
+  camY += (targetCam - camY) * Math.min(1, dt*9);   // stiff spring; the eased anchor supplies the smoothness
   shake = Math.max(0, shake - rdt*22);
   // particles
   for (let i = particles.length-1; i >= 0; i--){
