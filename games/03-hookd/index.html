@@ -392,7 +392,7 @@ const SPIN = [
   { nm:'Steel',     pm:1.25, zb:0.04, rod:'#9aa7b5' },
   { nm:'Carbon',    pm:1.5,  zb:0.09, rod:'#2b2f36' },
   { nm:'Pro',       pm:1.8,  zb:0.15, rod:'#3a3f47', trim:'#ffd75c' },
-  { nm:'Legendary', pm:1.3,  zb:0.5,  rod:'#ffd75c', trim:'#fff3b0', glow:true, always:true }, // always perfect
+  { nm:'Legendary', pm:1.3,  zb:0.6,  rod:'#ffd75c', trim:'#fff3b0', glow:true }, // v6.9: no auto-perfect — skill always matters
 ];
 const spinParams = t => SPIN[clamp(t, 0, SPIN.length-1)];
 /*ENDPURE*/
@@ -1534,7 +1534,7 @@ function upgEffect(k){
   switch (k){
     case 'spool': return '+' + Math.round((spoolDepth(lv+1) - spoolDepth(lv))/PX_PER_M) + 'm deeper';
     case 'line':  return '+' + (lineCap(lv+1) - lineCap(lv)) + 'kg per cast';
-    case 'spin':  return spinParams(lv+1).always ? 'always perfect' : 'slower arrow · wider zone';
+    case 'spin':  return 'slower arrow · wider zone';
     case 'reel':  return '+12% reel speed';
     case 'trap':  return '+' + fmtMoney(0.6*3600) + '/h idle';
   }
@@ -1880,9 +1880,10 @@ function drawFish(f, t){
   if (f.emoji){
     // v6.8: specials keep a MINIMUM SCREEN size — zoom can never shrink them (or their glows)
     // below readability; the boost happens inside the zoom scale so world position is untouched
-    const minScr = f.kind === 'levi' ? 130 : 38;
+    const minScr = f.kind === 'levi' ? 180 : 64;
     const bs = Math.max(1, minScr/(f.size*2*Math.max(zoom, 0.02)));
     cx.scale(bs, bs);
+    cx.globalAlpha = 1;   // specials never inherit water dimming
     // SPECIALS MUST POP — every special catchable glows harder than any fish
     if (f.kind === 'levi'){
       cx.globalAlpha = 0.75 + 0.25*Math.sin(t*3 + f.ph);
