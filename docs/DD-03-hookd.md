@@ -25,6 +25,11 @@ Replace the current upgrade list with:
 - **Gear is visible**: lure color/shape per type (Simple/Smelly/Search Magnet each instantly recognizable on the hook), line color/thickness reflects Better Line level (rope tiers), rod skin/color reflects Spinning tier (Rusty brown → Steel grey → Carbon black → Pro gold trim → Legendary glow). Progress you can SEE on the equipment itself.
 - Museum also logs lures used and parts; parts (⚙️, 5 = +1 free level) now apply to Spool/Line/Reel.
 
+### v5.3 aiming fix (supersedes all previous aim/preview rules)
+- **No trajectory dots.** Delete the dotted preview entirely. Stop simulating a "real fishing throw".
+- **One simple arrow from the boat center**, pointing exactly where the throw will go (the underwater travel direction). Power makes the arrow LONGER, never repositions or bends it. What the arrow points at is what the cast does.
+- **Power goes underwater, not into the air**: the air stage is a short fixed cosmetic hop (small arc near the boat, splash) — effectively identical at any power. ~All of the power budget = underwater travel distance along the aimed direction. Currently ~90% of power is wasted on air flight — that must be zero-ish.
+
 ### v5.2 playtest feedback
 - **Aiming is DIRECT, not slingshot** (user found opposite-drag inverted/counter-intuitive): the cast arrow points FROM the boat TOWARD the finger's drag direction; arrow length ∝ finger delta (= power). Drag down-right = cast down-right. Keep the cast cone clamp and the gauge exactly as is.
 - **Arrow must be much more visible**: thick, high-contrast (white core + dark outline), clear arrowhead; power % label readable in sunlight.

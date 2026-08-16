@@ -223,12 +223,17 @@ function powerFactor(g, zw){
   return Math.max(0.55, 0.95 - 0.4 * off/(0.5 - zw/2));
 }
 function clampAim(dx, dy){
-  // v5.2: DIRECT aim — arrow follows the drag (drag up-right = high cast, drag down = flat cast),
-  // still clamped to the rightward cone (10°–80° above horizontal)
-  let ang = Math.atan2(-dy, Math.abs(dx));  // drag up = aim up (screen y is down)
+  // v5.3 DIRECT: the arrow IS the underwater travel direction — point at the water where the
+  // hook should go. Rightward cone, 10°–80° BELOW horizontal (drag down = dive steeper).
+  let ang = Math.atan2(dy, Math.abs(dx));
   ang = clamp(ang, Math.PI/18, Math.PI*4/9);
-  return { x: Math.cos(ang), y: -Math.sin(ang) };
+  return { x: Math.cos(ang), y: Math.sin(ang) };
 }
+// v5.3 cast contract: air stage is a fixed cosmetic hop; the WHOLE power budget travels
+// underwater along the arrow. Arrow length is the only power feedback.
+const HOP = { dx: 90, h: 50, T: 0.4 };               // identical at every power level
+const arrowLen = P => 46 + 110*clamp(P, 0, 1);       // aim arrow LENGTH ∝ power
+const sinkBudget = (P, md) => Math.max(60, P*md);    // underwater distance = power × max reach
 // v5.1 exploration camera: frame roughly the reachable depth + a dark teaser sliver below.
 // zoom > 1 early (band 1 fills the view, fish look big); eases to 1:1 as the spool grows.
 const zoomFor = (md, availH) => clamp(availH / (md*1.35 + 3*PX_PER_M), 0.12, 0.85);
@@ -565,7 +570,7 @@ let chain = 0, comboMult = 1, lastCatchT = -9, chainMax = 0;
 let goldenArmed = false;
 let castW = 0, castLure = 'simple', strainFlash = 0;
 let atmo = null, atmoCd = 0; // deep-water atmosphere events (far layer, never interactive)
-let flightArc = null, flightT = 0, castDirG = {x:1, y:-0.5}; // snappy parametric throw (v5.2)
+let flightArc = null, flightT = 0, castDirG = {x:0.87, y:0.5}; // fixed hop + underwater travel dir (v5.3)
 let churnT = 0;              // off-screen population churn timer
 let animT = 0;
 const HOME = () => W*0.18;   // v5.1: boat sits left, casts arc rightward
@@ -860,9 +865,9 @@ function commitCast(dx, dy, d){
   castP = dragFrac * factor;
   const rt = rodTipPos();
   hook.x = rt.x; hook.y = rt.y; hook.vx = 0;
-  // v5.2 snappy throw: parametric arc, air time < 1 s, apex stays in frame
+  // v5.3: fixed cosmetic hop; the aimed direction is exactly the underwater travel direction
   castDirG = dir;
-  flightArc = arcFor(rt, dir, castP);
+  flightArc = arcFor(rt);
   flightT = 0;
   flight.vx = (flightArc.xe - flightArc.x0) / flightArc.T; // for line-lag/tilt visuals
   flight.vy = 0;
@@ -873,20 +878,18 @@ function commitCast(dx, dy, d){
   refreshBars();
   hint('');
 }
-function arcFor(rt, dir, P){
-  // entry point ∝ power & aim flatness; arc height capped so the apex never leaves the frame
-  const xe = clamp(rt.x + Math.max(40, dir.x * P * W * 0.85), rt.x + 40, W - 16);
-  const h = clamp(40 - dir.y * 80, 30, 80);       // steeper aim = slightly taller, still flat
-  const T = 0.35 + 0.35 * P;                       // whoosh-arc-splash in one beat
-  return { x0: rt.x, y0: rt.y, xe, h, T };
+function arcFor(rt){
+  // v5.3: fixed cosmetic hop — a small quick arc into the water just ahead of the boat,
+  // identical at every power level; the power budget is spent underwater
+  return { x0: rt.x, y0: rt.y, xe: rt.x + HOP.dx, h: HOP.h, T: HOP.T };
 }
 function waterEntry(){
   splashAt(hook.x, 1);
   sfx.splash();
-  // sink follows the AIM direction (steep aim = deep cast), not the flattened arc
-  let dx = castDirG.x, dy = Math.max(0.25, -castDirG.y);
+  // the hook travels along the arrow with the whole power budget
+  let dx = castDirG.x, dy = Math.max(0.17, castDirG.y);
   const dn = Math.hypot(dx, dy); dx /= dn; dy /= dn;
-  const Sb = Math.max(60, castP * maxDepth());       // travel budget: perfect+full ≈ max reach
+  const Sb = sinkBudget(castP, maxDepth());
   const v0 = clamp(Sb*1.1, 200, 1500);               // heavy water drag: visibly slower than air
   sinkK = v0 / Sb;                                   // ∫ v0·e^(-kt) = v0/k = Sb
   flight.vx = dx*v0; flight.vy = dy*v0;
@@ -1748,45 +1751,21 @@ function drawNear(t){
   }
   cx.globalAlpha = 1;
 }
-function previewPts(rt, dir, frac){
-  // arc from the same parametric throw + sink line along the aim direction
-  const pts = [];
-  const A = arcFor(rt, dir, clamp(frac, 0, 1));
-  for (let i = 1; i <= 8; i++){
-    const p = i/8;
-    pts.push({ x: A.x0 + (A.xe - A.x0)*p, y: A.y0*(1-p) - 4*A.h*p*(1-p) });
-  }
-  let dx = dir.x, dy = Math.max(0.25, -dir.y);
-  const dn = Math.hypot(dx, dy); dx /= dn; dy /= dn;
-  const Sb = Math.max(60, frac * maxDepth());
-  for (let j = 1; j <= 8; j++){
-    const s = Sb * 0.9 * j/8;
-    pts.push({ x: clamp(A.xe + dx*s, 16, W-16), y: dy*s });
-  }
-  return pts;
-}
 function drawAimUI(t){
-  const rt = rodTipPos(), sx = rt.x, syr = sy(rt.y);
+  // v5.3: ONE arrow at the boat center, pointing EXACTLY where the hook will travel underwater.
+  // No trajectory preview. Length = power, direction = the contract.
+  const bx = HOME(), by = sy(waveY(bx, t) - 10);
   const dx = aimCur.x - aimStart.x, dy = aimCur.y - aimStart.y, d = Math.hypot(dx, dy);
   if (d >= 24){
     const dir = clampAim(dx, dy);
-    cx.fillStyle = '#ffffff';
-    cx.globalAlpha = 0.4;
-    for (const p of previewPts(rt, dir, dragFrac)){
-      const py = sy(p.y);
-      if (py > H) break;
-      cx.beginPath(); cx.arc(p.x, py, 2, 0, 7); cx.fill();
-    }
-    cx.globalAlpha = 1;
-    // v5.2 arrow: fat dark-outlined shaft with bright core + big head — readable on sunlit water
-    const L = 46 + 110*dragFrac, ex = sx + dir.x*L, ey = syr + dir.y*L;
-    const a = Math.atan2(ey - syr, ex - sx);
+    const L = arrowLen(dragFrac), ex = bx + dir.x*L, ey = by + dir.y*L;
+    const a = Math.atan2(ey - by, ex - bx);
     const core = dragFrac > 0.97 ? '#ffd75c' : '#ffffff';
     cx.lineCap = 'round';
     cx.strokeStyle = '#08243d'; cx.lineWidth = 10;
-    cx.beginPath(); cx.moveTo(sx, syr); cx.lineTo(ex, ey); cx.stroke();
+    cx.beginPath(); cx.moveTo(bx, by); cx.lineTo(ex, ey); cx.stroke();
     cx.strokeStyle = core; cx.lineWidth = 5;
-    cx.beginPath(); cx.moveTo(sx, syr); cx.lineTo(ex, ey); cx.stroke();
+    cx.beginPath(); cx.moveTo(bx, by); cx.lineTo(ex, ey); cx.stroke();
     const head = (r, off) => {
       cx.beginPath(); cx.moveTo(ex + (10+off)*Math.cos(a), ey + (10+off)*Math.sin(a));
       cx.lineTo(ex - r*Math.cos(a-0.5), ey - r*Math.sin(a-0.5));
