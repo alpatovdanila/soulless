@@ -2543,7 +2543,7 @@ function update(dt, rdt){
     : -(H*0.28)/zoom;
   const camMin = -(H*0.28)/zoom;   // the camera never rises above its default idle framing
   if (targetCam < camMin) targetCam = camMin;
-  camY += (targetCam - camY) * Math.min(1, dt*9);   // stiff spring; the eased anchor supplies the smoothness
+  camY += (targetCam - camY) * Math.min(1, dt*(spoolUp ? 45 : 9)); // near-locked under spool-up: deadline speeds outrun a soft spring
   shake = Math.max(0, shake - rdt*22);
   // particles
   for (let i = particles.length-1; i >= 0; i--){
