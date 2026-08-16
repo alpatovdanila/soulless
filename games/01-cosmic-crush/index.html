@@ -502,6 +502,34 @@ function renderMissions(){
 // ================= physics =================
 function step(dt){
   const mq = [];
+  // mixer: swirl force around the jar center for a few seconds
+  if(mixT > 0){
+    mixT -= dt;
+    const cx = W/2, cy = (DANGER_Y + FLOOR)/2;
+    for(const b of bodies){
+      const dx = b.x-cx, dy = b.y-cy, d = Math.hypot(dx,dy)||1;
+      b.vx += (-dy/d)*1100*dt; b.vy += (dx/d)*1100*dt - 500*dt; // tangential churn + lift
+      b.va += 3*dt;
+    }
+  }
+  // spike: falls, pops what it touches, gone on floor
+  if(spike){
+    spike.vy += GRAV*0.7*dt;
+    spike.y += spike.vy*dt;
+    const tipY = spike.y + spike.h;
+    for(const b of bodies){
+      if(spike.pops <= 0) break;
+      if(Math.hypot(b.x-spike.x, b.y-tipY) < b.r + 8){
+        burst(b.x, b.y, TIERS[b.tier].c, 12, 240);
+        bodies = bodies.filter(x=>x!==b);
+        spike.pops--; sfx.pop(b.tier); shake = Math.min(shake+6, 30);
+      }
+    }
+    if(tipY >= FLOOR || spike.pops <= 0){
+      burst(spike.x, Math.min(tipY, FLOOR), '#c8d0e8', 18, 300);
+      sfx.boom(); shake = 16; spike = null;
+    }
+  }
   for(const b of bodies){
     b.vy += GRAV*dt;
     const sp = Math.hypot(b.vx,b.vy);
@@ -756,6 +784,7 @@ function resetRun(){
   score = 0; combo = 0; comboT = 0; dangerT = 0; dangerProx = 0; usedContinue = false;
   fever = 0; feverT = 0; feverExtUsed = false; slowmoT = 0;
   runDrops = 0; runMerges = 0; runMaxCombo = 0; runTiers = new Set(); freePu = false;
+  spike = null; mixT = 0;
   curTier = rndSpawnTier(); nxtTier = rndSpawnTier();
   state = 'play';
   $('over').classList.add('hidden');
@@ -834,6 +863,32 @@ function usePu(key){
   emitM('pu');
   saveSoon(); updHUD();
 }
+// ---- score-bought one-timers ----
+function buyWithScore(btn, cost, onGo){
+  sfx.ui();
+  if(state !== 'play') return;
+  if(score < cost){
+    const t = btn.textContent; btn.textContent = 'Need '+cost+'⭐';
+    setTimeout(()=>{ btn.textContent = t; }, 900);
+    return;
+  }
+  score -= cost;
+  addFloat(W/2, H/2, '-'+cost+'⭐');
+  onGo();
+  emitM('pu');
+  updHUD();
+}
+$('spikeBtn').addEventListener('click', ()=>buyWithScore($('spikeBtn'), SPIKE_COST, ()=>{
+  if(spike) return;
+  spike = {x: clampAim(aimDisp, 0), y: SPAWN_Y-40, vy: 300, w: 46, h: 56, pops: 5};
+  sfx.drop();
+  hintOnce('spike', '🔻 Spike pops up to 5 guys it lands on');
+}));
+$('mixBtn').addEventListener('click', ()=>buyWithScore($('mixBtn'), MIX_COST, ()=>{
+  mixT = 3.5;
+  sfx.boom();
+  showBanner('🌀 MIXING!');
+}));
 $('bombBtn').addEventListener('click', ()=>usePu('bomb'));
 $('swapBtn').addEventListener('click', ()=>usePu('swap'));
 $('shakeBtn').addEventListener('click', ()=>usePu('shake'));
@@ -1169,6 +1224,24 @@ function draw(now){
   }
   // bodies
   for(const b of bodies) drawBody(b);
+  // spike one-timer
+  if(spike){
+    ctx.fillStyle = '#c8d0e8';
+    ctx.strokeStyle = '#8890b8'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(spike.x - spike.w/2, spike.y);
+    ctx.lineTo(spike.x + spike.w/2, spike.y);
+    ctx.lineTo(spike.x, spike.y + spike.h);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  // mixer indicator
+  if(mixT > 0){
+    ctx.font = '26px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.save();
+    ctx.translate(W/2, DANGER_Y - 50); ctx.rotate(now*9);
+    ctx.fillText('🌀', 0, 0);
+    ctx.restore();
+  }
   // rings (milestone shockwaves)
   for(const rg of rings){
     const p = rg.t/rg.life;
@@ -1302,6 +1375,8 @@ function frame(t){
     const bb = $('boostBtn');
     if(boostT > 0){ bb.textContent = '⚡ 2x ' + Math.ceil(boostT) + 's'; bb.classList.add('on'); }
     else { bb.textContent = '▶ 2x 60s'; bb.classList.remove('on'); }
+    $('spikeBtn').disabled = score < SPIKE_COST || !!spike;
+    $('mixBtn').disabled = score < MIX_COST || mixT > 0;
     if(missionsDirty){ missionsDirty = false; renderMissions(); }
   }
   draw(t/1000);
