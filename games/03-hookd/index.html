@@ -2393,7 +2393,8 @@ function update(dt, rdt){
     // v6: eased acceleration into the ascend (smoothstep over ~2 s); SPOOL UP overrides pacing
     const ru = Math.min(1, reelT/REEL_RAMP_T);
     const paceMul = spoolUp ? SPOOL_UP_MULT : (jsActive ? reelPace(jsY) : 1);
-    const sp = reelSpeed() * ru*ru*(3 - 2*ru) * paceMul;
+    let sp = reelSpeed() * ru*ru*(3 - 2*ru) * paceMul;
+    if (spoolUp) sp = Math.max(sp, dl/4);   // v6.9.1: SPOOL UP is TIME-bound — surface in ≤4 s from anywhere
     hook.x += ddx/dl*sp*dt; hook.y += ddy/dl*sp*dt;
     if (spoolUp){
       zipT -= dt;
