@@ -2174,9 +2174,10 @@ function drawSky(t){
     // stays underneath as the pre-load fallback; sun/clouds draw on top.
     // v7.0.1: scale by SKY HEIGHT (not width-cover) so the shore in the artwork is visible —
     // bottom edge stays on the waterline; tile horizontally to span the screen
-    // v7.0.2: single image, no tiling — width-cover, bottom edge on the waterline
-    const bs2 = W / BG.width, bh2 = BG.height*bs2;
-    cx.drawImage(BG, 0, skyH - bh2, W, bh2);
+    // v7.0.4: FIT VERTICALLY (image height = sky height), centered horizontally,
+    // bottom edge on the waterline; the gradient shows at the sides if narrower than W
+    const bs2 = Math.max(20, skyH) / BG.height, bw2 = BG.width*bs2, bh2 = BG.height*bs2;
+    cx.drawImage(BG, (W - bw2)/2, skyH - bh2, bw2, bh2);
   }
   if (skyH > 8){   // sky decor only when the sky is actually on screen — no clouds underwater
     cx.drawImage(SPR.sun, W - 130, skyH*0.35 - 70);
