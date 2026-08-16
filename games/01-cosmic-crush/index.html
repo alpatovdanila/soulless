@@ -50,11 +50,13 @@
   .mchip{flex:1;min-width:0;font-size:10px;background:#141936;border:1px solid #262d52;border-radius:8px;
     padding:4px 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;cursor:pointer}
   .mchip b{color:#7fe89a}
-  #bottombar{display:flex;gap:6px;padding:5px 10px}
-  #bottombar button{flex:1;padding:9px 2px;border-radius:12px;border:1px solid #2c3252;background:#1a2145;
+  #bottombar,#oneTimers{display:flex;gap:6px;padding:5px 10px}
+  #oneTimers{padding-top:0}
+  #bottombar button,#oneTimers button{flex:1;padding:9px 2px;border-radius:12px;border:1px solid #2c3252;background:#1a2145;
     color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
-  #bottombar button:active{transform:scale(.96)}
-  #bottombar button:disabled{opacity:.45}
+  #bottombar button:active,#oneTimers button:active{transform:scale(.96)}
+  #bottombar button:disabled,#oneTimers button:disabled{opacity:.45}
+  #oneTimers button{background:#2a2145;border-color:#4a3f72}
   #boostBtn{flex:1.25}
   #boostBtn.on{background:#2a6b2f;border-color:#4caf50}
   footer{text-align:center;font-size:10px;opacity:.5;padding:2px 0 6px}
@@ -144,6 +146,10 @@
     <button id="swapBtn" title="Swap: reroll current + next piece">🔄 0</button>
     <button id="shakeBtn" title="Shake: nudge the pile">🫙 0</button>
     <button id="freePuBtn" title="Watch an ad for a free power-up (1/run)">▶🎁</button>
+  </div>
+  <div id="oneTimers">
+    <button id="spikeBtn" title="Spend score: drop a spike that pops what it lands on">🔻 Spike — 300⭐</button>
+    <button id="mixBtn" title="Spend score: stir the jar for a few seconds">🌀 Mixer — 500⭐</button>
   </div>
   <footer>PROTOTYPE — simulated monetization</footer>
 </div>
@@ -311,6 +317,8 @@ let dangerT = 0, dangerProx = 0, hbT = 0.3, state = 'play', usedContinue = false
 let fever = 0, feverT = 0, feverExtUsed = false, slowmoT = 0;
 let runDrops = 0, runMerges = 0, runMaxCombo = 0, runTiers = new Set();
 let freePu = false, missionsDirty = true;
+let spike = null, mixT = 0; // score-bought one-timers
+const SPIKE_COST = 300, MIX_COST = 500;
 let curTier = 0, nxtTier = 0, aimX = W/2, aimDisp = W/2, firstDrop = false, nextId = 1;
 const sessionStart = Date.now();
 const stars = []; for(let i=0;i<70;i++) stars.push({x:Math.random()*W, y:Math.random()*H, s:Math.random()*1.6+0.4, p:Math.random()*6.28});
@@ -540,14 +548,22 @@ function step(dt){
           const jimp = -(1+e)*vn / (1/ma + 1/mb);
           a.vx -= jimp*nx/ma; a.vy -= jimp*ny/ma;
           b.vx += jimp*nx/mb; b.vy += jimp*ny/mb;
-          if(vn < -150){ // real impact: both squish along contact normal
-            const ang = Math.atan2(ny, nx) + Math.PI/2;
-            squishKick(a, -vn, ang); squishKick(b, -vn, ang);
-          }
           const vt = rvx*-ny + rvy*nx; // tangential slip -> a bit of spin
           a.va += vt*0.06/a.r; b.va += vt*0.06/b.r;
         }
       }
+    }
+  }
+  // membrane pass: springs/pressure, then mutual dents where bodies press together
+  for(const b of bodies) if(b.nodes) skinStep(b, dt);
+  for(let i=0;i<bodies.length;i++){
+    const a = bodies[i];
+    if(!a.nodes) continue;
+    for(let j=i+1;j<bodies.length;j++){
+      const b = bodies[j];
+      if(!b.nodes) continue;
+      const dx = b.x-a.x, dy = b.y-a.y, R = a.r+b.r;
+      if(dx*dx+dy*dy < R*R){ dent(a,b); dent(b,a); }
     }
   }
   for(const [a,b] of mq) doMerge(a,b);
@@ -559,7 +575,7 @@ function doMerge(a,b){
   const c = mkBody((a.x+b.x)/2, (a.y+b.y)/2, t);
   c.vx = (a.vx+b.vx)/2; c.vy = (a.vy+b.vy)/2 - 50;
   c.touched = true; c.spawnT = 0;
-  c.sqv = 5; c.sqa = Math.random()*3.14; // birth wobble
+  resetNodes(c, 0.55); // membrane inflates out from the merge point -> birth wobble
   bodies.push(c);
   // combo chain
   combo = comboT > 0 ? combo+1 : 1; comboT = 1.5;
@@ -1009,6 +1025,18 @@ function renderEvo(){
 }
 
 // ================= drawing =================
+function bodyPath(b, s, r){ // smooth closed spline through membrane nodes; circle fallback for previews
+  if(!b.nodes){ ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.2832); return; }
+  const nds = b.nodes, N = nds.length;
+  ctx.beginPath();
+  let p = nds[N-1], q = nds[0];
+  ctx.moveTo((p.lx+q.lx)/2*s, (p.ly+q.ly)/2*s);
+  for(let i=0;i<N;i++){
+    p = nds[i]; q = nds[(i+1)%N];
+    ctx.quadraticCurveTo(p.lx*s, p.ly*s, (p.lx+q.lx)/2*s, (p.ly+q.ly)/2*s);
+  }
+  ctx.closePath();
+}
 function drawBody(b, ghost){
   const T = TIERS[b.tier];
   const sT = Math.min(b.spawnT, 1);
@@ -1016,16 +1044,12 @@ function drawBody(b, ghost){
   const r = b.r * s;
   ctx.save();
   ctx.translate(b.x, b.y);
-  // squash & stretch (volume-preserving) then body rotation
-  const sq = Math.max(-0.35, Math.min(0.5, b.sq || 0)), sqa = b.sqa || 0;
-  ctx.rotate(sqa);
-  ctx.scale(1+sq, 1/(1+sq));
-  ctx.rotate((b.angle || 0) - sqa);
   if(ghost) ctx.globalAlpha = 0.55;
   const skin = S.skin;
   if(skin === 'fruit' || skin === 'emoji'){
     ctx.fillStyle = T.c + '2e';
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.2832); ctx.fill();
+    bodyPath(b, s, r); ctx.fill();
+    ctx.rotate(b.angle || 0);
     ctx.font = Math.max(Math.round(r*1.5), 10)+'px system-ui';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText((skin === 'fruit' ? FRUIT : EMOJI)[b.tier], 0, r*0.06);
@@ -1038,13 +1062,17 @@ function drawBody(b, ghost){
   g.addColorStop(0, lighten(col, 45));
   g.addColorStop(1, darken(col, 25));
   ctx.fillStyle = g;
-  ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.2832); ctx.fill();
+  bodyPath(b, s, r); ctx.fill();
   ctx.shadowBlur = 0;
-  if(b.tier === 6){ // gas giant ring
+  if(b.tier === 6){ // gas giant ring (unclipped, rotates with body)
+    ctx.save(); ctx.rotate(b.angle || 0);
     ctx.strokeStyle = lighten(col, 20); ctx.lineWidth = r*0.13; ctx.globalAlpha *= 0.8;
     ctx.beginPath(); ctx.ellipse(0, 0, r*1.45, r*0.4, -0.35, 0, 6.2832); ctx.stroke();
-    ctx.globalAlpha = ghost ? 0.55 : 1;
+    ctx.restore();
   }
+  // features + face clip to the deformed blob and rotate with the body
+  bodyPath(b, s, r); ctx.clip();
+  ctx.rotate(b.angle || 0);
   if(b.tier === 4){ // moon craters
     ctx.fillStyle = 'rgba(0,0,0,0.12)';
     ctx.beginPath(); ctx.arc(-r*0.3, r*0.25, r*0.18, 0, 6.2832); ctx.fill();
