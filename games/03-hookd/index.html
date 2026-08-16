@@ -571,6 +571,7 @@ let goldenArmed = false;
 let castW = 0, castLure = 'simple', strainFlash = 0;
 let atmo = null, atmoCd = 0; // deep-water atmosphere events (far layer, never interactive)
 let flightArc = null, flightT = 0, castDirG = {x:0.87, y:0.5}; // fixed hop + underwater travel dir (v5.3)
+let castZoom = 0.6; // zoom at commit — converts the screen-space aim into world-space travel (x is 1:1, y scales by zoom)
 let churnT = 0;              // off-screen population churn timer
 let animT = 0;
 const HOME = () => W*0.18;   // v5.1: boat sits left, casts arc rightward
@@ -867,6 +868,7 @@ function commitCast(dx, dy, d){
   hook.x = rt.x; hook.y = rt.y; hook.vx = 0;
   // v5.3: fixed cosmetic hop; the aimed direction is exactly the underwater travel direction
   castDirG = dir;
+  castZoom = zoom; // the arrow is screen-space: remember the zoom it was aimed under
   flightArc = arcFor(rt);
   flightT = 0;
   flight.vx = (flightArc.xe - flightArc.x0) / flightArc.T; // for line-lag/tilt visuals
@@ -886,8 +888,10 @@ function arcFor(rt){
 function waterEntry(){
   splashAt(hook.x, 1);
   sfx.splash();
-  // the hook travels along the arrow with the whole power budget
-  let dx = castDirG.x, dy = Math.max(0.17, castDirG.y);
+  // the hook travels along the arrow with the whole power budget.
+  // The arrow is SCREEN-space; the camera scales y by zoom but not x, so unscale y to make
+  // the on-screen path match the arrow exactly (and pass through the fish it crossed).
+  let dx = castDirG.x, dy = Math.max(0.17, castDirG.y / Math.max(castZoom, 0.05));
   const dn = Math.hypot(dx, dy); dx /= dn; dy /= dn;
   const Sb = sinkBudget(castP, maxDepth());
   const v0 = clamp(Sb*1.1, 200, 1500);               // heavy water drag: visibly slower than air
@@ -1752,9 +1756,9 @@ function drawNear(t){
   cx.globalAlpha = 1;
 }
 function drawAimUI(t){
-  // v5.3: ONE arrow at the boat center, pointing EXACTLY where the hook will travel underwater.
-  // No trajectory preview. Length = power, direction = the contract.
-  const bx = HOME(), by = sy(waveY(bx, t) - 10);
+  // v5.3.1: ONE arrow anchored at the water-entry point, pointing EXACTLY along the hook's
+  // ON-SCREEN travel path (aim is screen-space; waterEntry unscales y by castZoom).
+  const bx = rodTipPos().x + HOP.dx, by = sy(waveY(bx, t) - 6);
   const dx = aimCur.x - aimStart.x, dy = aimCur.y - aimStart.y, d = Math.hypot(dx, dy);
   if (d >= 24){
     const dir = clampAim(dx, dy);
