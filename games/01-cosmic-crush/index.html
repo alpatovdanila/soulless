@@ -238,7 +238,14 @@
 'use strict';
 // ================= constants =================
 const W = 540, H = 900, WALL = 12, FLOOR = H - 16, DANGER_Y = 132, SPAWN_Y = 74;
-const GRAV = 2000, MAXV = 1500;
+const GRAV = 2900, MAXV = 1800;   // hefty little guys — they land with weight
+// world-space key light (from upper-left). Shading is drawn in world space, not body
+// space, so a tumbling friend's highlight stays put and the form reads as solid.
+const LX = -0.5, LY = -0.86;
+// Bodies tumble and settle at whatever angle physics gives them — never corrected.
+// Faces stay upright on top of that (the cover look, and LocoRoco's). Set false to
+// let faces turn with the body too.
+const FACE_UPRIGHT = true;
 // The friend chain. v = corner count (0 = round), kiki = pointy & solid, else soft bouba.
 // stiff = shape-matching stiffness: 1 is perfectly rigid, lower is squishier.
 const TIERS = [
@@ -260,9 +267,9 @@ TIERS.forEach((T, i) => {
   // Boubas get squishier as they grow — all three knobs soften together, or a stiff
   // membrane/pressure just cancels out a slack shape-matching stiffness. Kikis: solid.
   const u = i/LAST;
-  T.stiff = T.kiki ? 1   : 0.62 - 0.52*u;   // shape memory (the main softness knob)
-  T.edgeK = T.kiki ? 1   : 0.85 - 0.50*u;   // membrane stretch resistance
-  T.presK = T.kiki ? 0   : 0.80 - 0.45*u;   // internal gas keeping it from collapsing
+  T.stiff = T.kiki ? 1   : 0.40 - 0.355*u;  // shape memory (the main softness knob)
+  T.edgeK = T.kiki ? 1   : 0.70 - 0.42*u;   // membrane stretch resistance
+  T.presK = T.kiki ? 0   : 0.90 - 0.25*u;   // internal gas: stays strong so nothing collapses
   T.round = T.kiki ? 0.05 : 0.34;           // corner rounding: kikis barely, boubas plenty
 });
 const SPAWN_W = [6,3,1];        // weights for tiers 0..2
@@ -519,6 +526,7 @@ function polyHit(P, N, px, py, out){
 }
 const HIT = {};
 const SKIN = 2.5;   // contact thickness so bodies touch before they interpenetrate
+const MU = 0.34;    // contact friction — enough grip to stop the pile skating around
 let sameTouch = []; // same-tier pairs that actually made contact this step -> merge
 // Resolve every point of A against body B's outline (and react on B).
 function collideBodies(a, b){
@@ -546,6 +554,16 @@ function collideBodies(a, b){
     const s0 = (1-t)*pen*wb, s1 = t*pen*wb;
     e0.x -= nx*s0; e0.y -= ny*s0;
     e1.x -= nx*s1; e1.y -= ny*s1;
+    // friction: damp how far the contact slid sideways this substep, so friends
+    // grip each other a little instead of skating apart
+    const tx = -ny, ty = nx;
+    const ex = (e0.x-e0.px)*(1-t) + (e1.x-e1.px)*t;
+    const ey = (e0.y-e0.py)*(1-t) + (e1.y-e1.py)*t;
+    const slide = ((p.x-p.px) - ex)*tx + ((p.y-p.py) - ey)*ty;
+    const f = slide*MU;
+    p.x -= tx*f*wa; p.y -= ty*f*wa;
+    e0.x += tx*f*wb*(1-t); e0.y += ty*f*wb*(1-t);
+    e1.x += tx*f*wb*t;     e1.y += ty*f*wb*t;
   }
   // real outline contact is the merge test — centroid distance misses corner-to-corner
   if(touched && a.tier === b.tier && a.tier < LAST && !a.merging && !b.merging){
@@ -627,16 +645,16 @@ function step(dt){
     }
   }
   // ---- solve (position based: unconditionally stable) ----
-  for(let it=0; it<2; it++){
-    for(const b of bodies){
-      shapeMatch(b, b.frozen ? 1 : b.stiff);   // frozen friends are literally stiff
-      if(!b.kiki && !b.frozen){ edges(b, b.edgeK); pressure(b, b.presK); }
-    }
-    for(let i=0;i<bodies.length;i++){
-      for(let j=i+1;j<bodies.length;j++) { collideBodies(bodies[i], bodies[j]); collideBodies(bodies[j], bodies[i]); }
-    }
-    for(const b of bodies){ collideSpike(b); collideWalls(b); }
+  // One iteration per substep, many substeps — "Small Steps in Physics Simulation"
+  // (Macklin 2019): n substeps x 1 iteration beats 1 step x n iterations at equal cost.
+  for(const b of bodies){
+    shapeMatch(b, b.frozen ? 1 : b.stiff);   // frozen friends are literally stiff
+    if(!b.kiki && !b.frozen){ edges(b, b.edgeK); pressure(b, b.presK); }
   }
+  for(let i=0;i<bodies.length;i++){
+    for(let j=i+1;j<bodies.length;j++){ collideBodies(bodies[i], bodies[j]); collideBodies(bodies[j], bodies[i]); }
+  }
+  for(const b of bodies){ collideSpike(b); collideWalls(b); }
   // ---- read velocities back out of the motion ----
   for(const b of bodies){
     let vx = 0, vy = 0;
@@ -1302,36 +1320,74 @@ function bodyPath(b){
   }
   ctx.closePath();
 }
-// Boubas beam. Kikis are a bit grumpy — but they're good guys.
+// Boubas beam with happy closed ^^ eyes and an open smile.
+// Kikis aren't angry — just tired: heavy half-lidded eyes, small flat mouth, no cross brows.
+const INK = '#4a3b32';
 function drawFace(r, kiki){
-  const er = Math.max(r*0.13, 2.6);
-  ctx.fillStyle = '#fff';
-  ctx.beginPath(); ctx.arc(-r*0.27, -r*0.10, er, 0, 6.2832); ctx.fill();
-  ctx.beginPath(); ctx.arc(r*0.27, -r*0.10, er, 0, 6.2832); ctx.fill();
-  ctx.fillStyle = '#33302b';
-  const pd = kiki ? er*0.45 : er*0.52;
-  ctx.beginPath(); ctx.arc(-r*0.27, -r*0.08, pd, 0, 6.2832); ctx.fill();
-  ctx.beginPath(); ctx.arc(r*0.27, -r*0.08, pd, 0, 6.2832); ctx.fill();
-  if(!kiki){
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx.beginPath(); ctx.arc(-r*0.31, -r*0.15, er*0.22, 0, 6.2832); ctx.fill();
-    ctx.beginPath(); ctx.arc(r*0.23, -r*0.15, er*0.22, 0, 6.2832); ctx.fill();
-    ctx.fillStyle = 'rgba(255,120,140,0.32)';
-    ctx.beginPath(); ctx.ellipse(-r*0.46, r*0.10, r*0.13, r*0.09, 0, 0, 6.2832); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(r*0.46, r*0.10, r*0.13, r*0.09, 0, 0, 6.2832); ctx.fill();
-  }
-  ctx.strokeStyle = 'rgba(40,36,30,0.65)';
-  ctx.lineWidth = Math.max(r*0.055, 1.4);
-  ctx.lineCap = 'round';
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const ex = r*0.30, ey = -r*0.10;
   if(kiki){
+    // half-lidded almond eyes — the lid is a heavy curve sitting low over the eye
+    ctx.fillStyle = INK;
+    for(const s of [-1, 1]){
+      const cx = s*ex;
+      ctx.beginPath();
+      ctx.moveTo(cx - r*0.14, ey);
+      ctx.quadraticCurveTo(cx, ey - r*0.115, cx + r*0.14, ey);   // upper lid
+      ctx.quadraticCurveTo(cx, ey + r*0.075, cx - r*0.14, ey);   // lower lash line
+      ctx.fill();
+    }
+    // small flat, faintly downturned mouth
+    ctx.strokeStyle = INK; ctx.lineWidth = Math.max(r*0.052, 1.5);
     ctx.beginPath();
-    ctx.moveTo(-r*0.42, -r*0.30); ctx.lineTo(-r*0.14, -r*0.20);
-    ctx.moveTo(r*0.42, -r*0.30); ctx.lineTo(r*0.14, -r*0.20);
+    ctx.moveTo(-r*0.13, r*0.26);
+    ctx.quadraticCurveTo(0, r*0.21, r*0.13, r*0.26);
     ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, r*0.34, r*0.22, Math.PI+0.5, -0.5); ctx.stroke();
-  } else {
-    ctx.beginPath(); ctx.arc(0, r*0.10, r*0.30, 0.32, Math.PI-0.32); ctx.stroke();
+    return;
   }
+  // bouba: ^^ closed happy eyes
+  ctx.strokeStyle = INK; ctx.lineWidth = Math.max(r*0.062, 1.7);
+  for(const s of [-1, 1]){
+    ctx.beginPath();
+    ctx.arc(s*ex, ey + r*0.05, r*0.115, Math.PI*1.12, Math.PI*1.88);
+    ctx.stroke();
+  }
+  // open smiling mouth with a tongue
+  ctx.fillStyle = INK;
+  ctx.beginPath();
+  ctx.moveTo(-r*0.20, r*0.13);
+  ctx.quadraticCurveTo(0, r*0.10, r*0.20, r*0.13);
+  ctx.quadraticCurveTo(0, r*0.40, -r*0.20, r*0.13);
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = '#ff8a9e';
+  ctx.beginPath(); ctx.ellipse(0, r*0.33, r*0.13, r*0.09, 0, 0, 6.2832); ctx.fill();
+  ctx.restore();
+  // rosy cheeks
+  ctx.fillStyle = 'rgba(255,120,140,0.34)';
+  for(const s of [-1, 1]){
+    ctx.beginPath(); ctx.ellipse(s*r*0.50, r*0.11, r*0.115, r*0.078, 0, 0, 6.2832); ctx.fill();
+  }
+}
+// Sculpted look, all in 2D. Clip to the shape, then stroke its own outline a few
+// times nudged along the light direction: each pass lays a soft band just inside
+// the rim, and stacked they read as a rounded bevel. Cheap and predictable — no
+// shadow blur, which would paint the stroke itself as well as its blur.
+function innerBevel(b, colour, r, ox, oy, alpha){
+  ctx.save();
+  bodyPath(b); ctx.clip();
+  ctx.strokeStyle = colour; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.globalAlpha = alpha;
+  for(let i=1;i<=3;i++){
+    const f = i/3;
+    ctx.save();
+    ctx.translate(ox*f, oy*f);
+    ctx.lineWidth = r*0.34*(1.25 - f*0.75);
+    bodyPath(b); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
 }
 function drawBody(b, ghost){
   const T = TIERS[b.tier];
@@ -1346,29 +1402,52 @@ function drawBody(b, ghost){
     ctx.restore();
     return;
   }
+  // contact shadow on the grass, thrown away from the light
   ctx.save();
-  ctx.globalAlpha = 0.18; ctx.fillStyle = '#1d3f1a';
-  ctx.translate(2, 5); bodyPath(b); ctx.fill();
+  ctx.globalAlpha = 0.20; ctx.fillStyle = '#16330f';
+  ctx.translate(-LX*r*0.13, -LY*r*0.13 + r*0.09);
+  bodyPath(b); ctx.fill();
   ctx.restore();
+  // base
   ctx.save();
-  const g = ctx.createRadialGradient(b.x-r*0.33, b.y-r*0.36, r*0.08, b.x, b.y, r*1.05);
-  g.addColorStop(0, lighten(col, 52));
-  g.addColorStop(1, darken(col, 22));
+  const g = ctx.createLinearGradient(b.x+LX*r, b.y+LY*r, b.x-LX*r, b.y-LY*r);
+  g.addColorStop(0, lighten(col, 30));
+  g.addColorStop(0.55, col);
+  g.addColorStop(1, darken(col, 26));
   ctx.fillStyle = g;
   bodyPath(b); ctx.fill();
-  ctx.strokeStyle = darken(col, 45); ctx.lineWidth = Math.max(r*0.045, 1.6);
-  bodyPath(b); ctx.stroke();
+  ctx.restore();
+  // sculpting: shaded side away from the light, bright rim facing it
+  innerBevel(b, darken(col, 58), r, -LX*r*0.16, -LY*r*0.16, 0.20);
+  innerBevel(b, '#ffffff',       r,  LX*r*0.13,  LY*r*0.13, 0.17);
+  // glossy highlight, offset toward the light
+  ctx.save();
   bodyPath(b); ctx.clip();
-  ctx.translate(b.x, b.y); ctx.rotate(b.angle);
+  const hx = b.x + LX*r*0.42, hy = b.y + LY*r*0.42;
+  const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, r*0.52);
+  hg.addColorStop(0, 'rgba(255,255,255,0.55)');
+  hg.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hg;
+  ctx.fillRect(b.x-r*1.2, b.y-r*1.2, r*2.4, r*2.4);
+  ctx.restore();
+  // crisp darker edge, like the cover art
+  ctx.save();
+  ctx.strokeStyle = darken(col, 44); ctx.lineWidth = Math.max(r*0.035, 1.5);
+  ctx.lineJoin = 'round';
+  bodyPath(b); ctx.stroke();
+  ctx.restore();
+  // face rides along with the body's rotation
+  ctx.save();
+  bodyPath(b); ctx.clip();
+  ctx.translate(b.x, b.y); ctx.rotate(FACE_UPRIGHT ? 0 : b.angle);
   drawFace(r, b.kiki);
   ctx.restore();
   if(b.frozen){
     ctx.save();
-    bodyPath(b);
-    ctx.fillStyle = 'rgba(190,235,255,0.6)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(r*0.05, 2); ctx.stroke();
     bodyPath(b); ctx.clip();
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = Math.max(r*0.035, 1.2);
+    ctx.fillStyle = 'rgba(168,224,255,0.42)';   // light frost, so the friend still shows through
+    ctx.fillRect(b.x-r*1.3, b.y-r*1.3, r*2.6, r*2.6);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = Math.max(r*0.045, 1.4);
     for(let i=0;i<3;i++){
       const a = b.angle + i*2.1;
       ctx.beginPath();
@@ -1377,9 +1456,20 @@ function drawBody(b, ghost){
       ctx.stroke();
     }
     ctx.restore();
-    ctx.font = Math.round(r*0.8)+'px system-ui';
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = Math.max(r*0.055, 2);
+    bodyPath(b); ctx.stroke();
+    ctx.restore();
+    // the prize, on a disc so it reads at any size
+    const ir = Math.max(r*0.40, 13);
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, ir, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = 'rgba(120,190,225,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = Math.round(ir*1.25)+'px system-ui';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(TOOLS[b.frozen].ic, b.x, b.y + r*0.05);
+    ctx.fillText(TOOLS[b.frozen].ic, b.x, b.y + ir*0.06);
+    ctx.restore();
   }
 }
 function spikePath(sx, sy){
@@ -1610,7 +1700,7 @@ function frame(t){
     const FDT = 1/60;
     let n = 0;
     while(acc >= FDT && n < 3){
-      for(let k=0; k<4; k++) step(FDT/4);
+      for(let k=0; k<8; k++) step(FDT/8);
       dropCd -= FDT; comboT -= FDT;
       if(comboT <= 0) combo = 0;
       if(boostT > 0) boostT -= FDT;

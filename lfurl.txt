@@ -1,0 +1,1 @@
+https://registry.npmjs.org/liquidfun-wasm/-/liquidfun-wasm-7.0.0.tgz
