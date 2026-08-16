@@ -28,8 +28,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>💸 Soulless — Prototype Hub</h1>
-  <p class="sub">5 playable prototypes · simulated monetization · pick your winner</p>
+  <h1>💸 Soulless — More Games</h1>
+  <p class="sub">all prototypes · simulated monetization</p>
   <a class="card" href="games/01-cosmic-crush/index.html"><span class="badge">physics merge</span><b>🪐 Cosmic Crush</b><span>Drop space rocks, merge to the Sun. Suika-like.</span></a>
   <a class="card" href="games/02-dig-inc/index.html"><span class="badge">idle tycoon</span><b>⛏️ Dig Inc.</b><span>Tap, hire managers, prestige. Numbers go up.</span></a>
   <a class="card" href="games/03-hookd/index.html"><span class="badge">skill casual</span><b>🎣 Hook'd</b><span>Cast deep, reel up a fortune. Tiny Fishing-like.</span></a>
@@ -38,23 +38,27 @@
 </div>
 
 <div id="player"><iframe id="frame" title="game"></iframe></div>
-<button id="hubBtn" aria-label="Back to hub">⌂</button>
+<button id="hubBtn" aria-label="More games">🎮</button>
 
 <script>
 var player=document.getElementById('player'),frame=document.getElementById('frame');
-function openGame(url,push){
-  frame.src=url;player.classList.add('open');
-  if(push)history.pushState({game:url},'', '#'+url);
+var MAIN='games/03-hookd/index.html';
+function openGame(url){
+  if(frame.getAttribute('src')!==url)frame.src=url;
+  player.classList.add('open');
 }
-function closeGame(){player.classList.remove('open');frame.src='about:blank';}
+function showList(){player.classList.remove('open');frame.src='about:blank';}
+function route(){
+  var h=location.hash.slice(1);
+  if(h==='more')showList();
+  else openGame(h||MAIN);
+}
 document.querySelectorAll('a.card').forEach(function(a){
-  a.addEventListener('click',function(e){e.preventDefault();openGame(a.getAttribute('href'),true);});
+  a.addEventListener('click',function(e){e.preventDefault();location.hash=a.getAttribute('href');});
 });
-document.getElementById('hubBtn').addEventListener('click',function(){history.back();});
-window.addEventListener('popstate',function(){
-  if(location.hash.slice(1)) openGame(location.hash.slice(1),false); else closeGame();
-});
-if(location.hash.slice(1)) openGame(location.hash.slice(1),false);
+document.getElementById('hubBtn').addEventListener('click',function(){location.hash='more';});
+window.addEventListener('hashchange',route);
+route();
 </script>
 </body>
 </html>
