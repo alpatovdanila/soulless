@@ -182,6 +182,7 @@
   <div class="shoprow"><span>💰 Money crate<small>Big cash</small></span><button class="buybtn gem" id="iapM2">$4.99</button></div>
   <div class="shoprow"><span>🎁 Lure bundle<small>10🧀 + 3🧲</small></span><button class="buybtn gem" id="iapLure">$4.99</button></div>
   <div id="cosmRows"></div>
+  <button id="resetBtn" style="margin-top:14px;width:100%;padding:12px;border-radius:12px;border:0;font-family:inherit;font-weight:700;font-size:14px;color:#ffb4b4;background:#3a1520">🗑 Reset all progress</button>
 </div></div>
 
 <div class="modal" id="collModal"><div class="box">
@@ -278,7 +279,7 @@ const lureSpent = (haulW, cap) => haulW >= cap * LURE_SPEND_FRAC;
 // v5.11 smelly scarcity: smelly is TREASURE — single-digit stock, spent deliberately.
 // Organic sources pay SIMPLE; smelly comes only from hard missions, a trimmed NEGOTIATE
 // roll, and the deliberate rewarded-ad path. Simple is the workhorse.
-const SMELLY = { discovery:0, daily:1, negotiateP:0.22, magnetP:0.10, rewardAd:2, missionGolden:1 };
+const SMELLY = { discovery:0, daily:0, negotiateP:0.08, magnetP:0.04, rewardAd:1, missionGolden:1 }; // v6.5: ÷3 — a TREAT, not the norm
 // v5.7 sink profile: steady descent at constant speed, then a SHORT time-bounded ease-out
 // over the last stretch — no asymptotic crawl; the integral equals the budget exactly.
 // v5.16 pinned pacing ratio: descent cruise speed = EXACTLY 2× the reel-up speed, at every
@@ -286,7 +287,7 @@ const SMELLY = { discovery:0, daily:1, negotiateP:0.22, magnetP:0.10, rewardAd:2
 const sinkV0 = reelSp => 2 * reelSp;   // descent = exactly 2× the ascent, at any depth
 // v6 turnaround (distance-based; speeds are zoom-live so no precomputed timeline):
 // cruise → ~1 s sine ease-down into the stop → beat → ~2 s smoothstep accel into the reel.
-const SINK_DECEL_T = 1.0, REEL_RAMP_T = 2.0;   // end-ease and pull-away, both in SCREEN time
+const SINK_DECEL_T = 1.8, REEL_RAMP_T = 2.0;   // end-ease and pull-away, both in SCREEN time (generous, must be FELT)
 // v5.14 vertical joystick pacing on the reel: finger above center = a bit faster up,
 // below = a bit slower (±25%, same deadzone as the horizontal axis)
 const reelPace = offY => Math.abs(offY) < 6 ? 1 : 1 - 0.12*clamp(offY/60, -1, 1); // gentle ±12%
@@ -1057,6 +1058,7 @@ function beginSink(){
   flight.vx = sinkDir.x*v00; flight.vy = sinkDir.y*v00;
   sinkMaxY = Math.max(0, hook.y);
   phase = 'SINK';
+  refreshBars();   // SPOOL UP (bail-out) is available from splashdown, not just the reel
   hint(S.casts <= 3 ? 'Steer now — tap & slide left/right!' : ''); // steering live from splashdown
 }
 function endSink(){
@@ -1163,7 +1165,9 @@ function surface(){
   hint('');
   // v5.12: the lure is only spent on a MEANINGFUL haul (≥10% of the line's capacity);
   // empty and near-empty casts refund it instantly with the same telegraph
-  const spentLure = lureSpent(castW, maxWeight());
+  // v6.5: only SIMPLE lures are refundable (low-haul mercy); smelly/magnet are spent on use —
+  // they're treats earned via negotiating/quests, not a renewable resource
+  const spentLure = castLure === 'simple' ? lureSpent(castW, maxWeight()) : true;
   if (castLure !== 'sponsored'){
     if (spentLure){
       const ln = LURES[castLure].nm + ' Lure';
@@ -1206,7 +1210,7 @@ function doSell(mult){
   if (selling || (st.n <= 0 && st.money <= 0)) return;
   selling = true;
   const money = Math.round(st.money * mult);
-  const refunds = Object.assign({}, st.spent);
+  const refunds = { simple: st.spent.simple || 0 };   // v6.5: ONLY simple refunds — specials are consumed for good
   const nParts = st.parts || 0;
   const r = $('sellBtn').getBoundingClientRect();      // fly origin BEFORE the button hides
   const ox = r.left + r.width/2, oy = r.top + r.height/2;
@@ -1272,7 +1276,7 @@ $('negBtn').addEventListener('click', () => {
   });
 });
 $('lureAdBtn').addEventListener('click', () => {
-  showRewarded('+2 smelly lures', 'lure', () => { addLure('smelly', SMELLY.rewardAd); snack('🧀', '+2 smelly lures'); });
+  showRewarded('+1 smelly lure', 'lure', () => { addLure('smelly', SMELLY.rewardAd); snack('🧀', '+1 smelly lure'); });
 });
 
 /* ============ lure selector — v5.6 radio slots, one tap to switch ============ */
@@ -1565,6 +1569,11 @@ document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click
 // bottom sheets close on backdrop tap too
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.style.display = 'none'; }));
 $('shopBtn').addEventListener('click', () => { refreshShop(); $('shopModal').style.display = 'flex'; });
+$('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset ALL progress? This cannot be undone.')) return;
+  localStorage.removeItem(KEY); localStorage.removeItem('hookd-save-v2');
+  location.reload();
+});
 $('dashBtn').addEventListener('click', () => { const d = $('dash'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; });
 $('collBtn').addEventListener('click', () => { renderColl(); $('collModal').style.display = 'flex'; });
 $('muteBtn').addEventListener('click', () => { S.muted = !S.muted; $('muteBtn').textContent = S.muted ? '🔇' : '🔊'; save(); });
@@ -1707,9 +1716,9 @@ function refreshDaily(){ $('dailyBtn').style.display = S.daily === new Date().to
 $('dailyBtn').addEventListener('click', () => {
   S.daily = new Date().toDateString();
   const amt = Math.max(50, Math.ceil(upgCost('spool') * 0.3));
-  addMoney(amt); addLure('smelly', SMELLY.daily);
+  addMoney(amt); addLure('simple', 2);   // v6.5: daily pays the workhorse lure, not the treat
   sfx.buy(); burst(W/2, 60, '#ffd75c', 16, true);
-  snack('🎁', '+' + fmtMoney(amt) + ' +' + SMELLY.daily + '🧀');
+  snack('🎁', '+' + fmtMoney(amt) + ' +2🐛');
   refreshDaily(); save();
 });
 
