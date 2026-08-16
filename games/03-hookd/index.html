@@ -286,12 +286,7 @@ const SMELLY = { discovery:0, daily:1, negotiateP:0.22, magnetP:0.10, rewardAd:2
 const sinkV0 = reelSp => 2 * reelSp;   // descent = exactly 2× the ascent, at any depth
 // v6 turnaround (distance-based; speeds are zoom-live so no precomputed timeline):
 // cruise → ~1 s sine ease-down into the stop → beat → ~2 s smoothstep accel into the reel.
-const SINK_DECEL_T = 1.0, REEL_RAMP_T = 2.0;
-function sinkEase(left, vBase){
-  const dWin = Math.max(20, vBase * SINK_DECEL_T * 0.5);   // distance a 1 s sine decel covers
-  const u = clamp(left/dWin, 0, 1);
-  return u >= 1 ? 1 : Math.max(0.05, Math.sin(u * Math.PI/2));
-}
+const SINK_DECEL_T = 1.0, REEL_RAMP_T = 2.0;   // end-ease and pull-away, both in SCREEN time
 // v5.14 vertical joystick pacing on the reel: finger above center = a bit faster up,
 // below = a bit slower (±25%, same deadzone as the horizontal axis)
 const reelPace = offY => Math.abs(offY) < 6 ? 1 : 1 - 0.25*clamp(offY/60, -1, 1);
@@ -781,7 +776,7 @@ function pushPile(size, color, landX){
   }
   const rot = rnd(-0.3, 0.3) + (support ? clamp((x - support.px)*0.03, -0.6, 0.6) : 0);
   stashPile.push({ size: sz, color, r, px: x, py: y, rot, row: Math.max(0, Math.round(-y/14)) });
-  if (stashPile.length > 120) stashPile.shift();  // ponytail: pre-render the lower pile if perf ever cares
+  if (stashPile.length > 280) stashPile.shift();  // let the tower RISE; ponytail: pre-render the lower pile if perf ever cares
 }
 function mkCrate(){
   return { kind:'crate', name:'Sunken Crate', emoji:'📦', size:44,
@@ -1184,7 +1179,9 @@ function surface(){
     castEarn = Math.max(1, R.total);
     S.recHaul = Math.max(S.recHaul, R.total);
     // no price tags on catches — the SELL button's running total is the money feedback
-    caught.forEach((f, i) => flyers.push({ f, t: -i*0.13, fx: hook.x, spin: rnd(6,11)*(Math.random()<0.5?-1:1) }));
+    // unload clamped to ≤4 s total: stagger compresses as the haul grows (0.55 s flight + spread)
+    const stag = Math.min(0.13, 3.45/Math.max(1, caught.length));
+    caught.forEach((f, i) => flyers.push({ f, t: -i*stag, fx: hook.x, spin: rnd(6,11)*(Math.random()<0.5?-1:1) }));
     caught = [];
   } else if (S.casts <= 3){
     toast('Nothing hooked… steer into fish on the way up!');
@@ -2246,9 +2243,12 @@ function update(dt, rdt){
   } else if (phase === 'SINK'){
     hkPX = hook.x; hkPY = hook.y;               // swept-catch segment start
     if (!touched){
-      // v6: distance-based descent at screen-constant speed (2× reel), ~1 s sine ease to the stop
-      const vBase = sinkV0(reelSpeed());
-      const spd0 = vBase * sinkEase(sinkLeft, vBase);
+      // v6.2: descent at screen-constant speed (2× reel); the ~1 s end ease is computed in
+      // SCREEN px too — otherwise the zoom widening makes m/s accelerate right through it
+      const scr = 2 * reelScr(), zc = Math.max(zoom, 0.02);
+      const dWin = Math.max(20, scr * SINK_DECEL_T * 0.5);
+      const u = clamp(sinkLeft*zc/dWin, 0, 1);
+      const spd0 = (scr * (u >= 1 ? 1 : Math.max(0.05, Math.sin(u * Math.PI/2)))) / zc;
       flight.vx = sinkDir.x*spd0; flight.vy = sinkDir.y*spd0;   // feeds line-lag/tilt/steer caps
       hook.x += flight.vx*dt; hook.y += flight.vy*dt;
       sinkLeft -= spd0*dt;
