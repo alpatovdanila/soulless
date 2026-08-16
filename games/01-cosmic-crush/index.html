@@ -508,7 +508,7 @@ function step(dt){
     const cx = W/2, cy = (DANGER_Y + FLOOR)/2;
     for(const b of bodies){
       const dx = b.x-cx, dy = b.y-cy, d = Math.hypot(dx,dy)||1;
-      b.vx += (-dy/d)*1100*dt; b.vy += (dx/d)*1100*dt - 500*dt; // tangential churn + lift
+      b.vx += (-dy/d)*1600*dt; b.vy += (dx/d)*1600*dt - 800*dt; // tangential churn + lift
       b.va += 3*dt;
     }
   }
@@ -725,6 +725,7 @@ cv.addEventListener('pointercancel', e => {
 
 // ================= danger / game over =================
 function checkDanger(dt){
+  if(mixT > 0){ dangerT = 0; return; } // stirring throws guys around — don't call that an overflow
   let danger = false;
   for(const b of bodies){
     if(b.touched && b.y - b.r < DANGER_Y){ danger = true; break; }
