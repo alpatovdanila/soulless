@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8777", "--directory", "D:\\development\\cashgrab"],
       "port": 8777
+    },
+    {
+      "name": "cashgrab-hub-2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8778", "--directory", "D:\\development\\cashgrab"],
+      "port": 8778
     }
   ]
 }

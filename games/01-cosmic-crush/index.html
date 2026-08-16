@@ -322,7 +322,13 @@ function rndSpawnTier(){
   return 0;
 }
 function mkBody(x,y,tier){
-  return {id:nextId++, x, y, vx:0, vy:0, r:TIERS[tier].r, tier, touched:false, spawnT:1, merging:false};
+  return {id:nextId++, x, y, vx:0, vy:0, r:TIERS[tier].r, tier, touched:false, spawnT:1, merging:false,
+          angle:Math.random()*6.2832, va:(Math.random()-0.5)*4, sq:0, sqv:0, sqa:0};
+}
+// squish kick: v = impact speed, ang = bulge axis; bigger tier = squishier
+function squishKick(b, v, ang){
+  b.sqa = ang;
+  b.sqv += Math.min(v*0.0007*(1 + b.tier*0.3), 7);
 }
 curTier = rndSpawnTier(); nxtTier = rndSpawnTier();
 
@@ -443,14 +449,29 @@ function step(dt){
     const sp = Math.hypot(b.vx,b.vy);
     if(sp > MAXV){ b.vx *= MAXV/sp; b.vy *= MAXV/sp; }
     b.x += b.vx*dt; b.y += b.vy*dt;
+    b.angle += b.va*dt; b.va *= Math.pow(0.3, dt); // free spin decays; settled angle stays put
+    // squish spring — lower frequency for big tiers = floppier wobble
+    const om = 20 - b.tier*1.4;
+    b.sqv += (-om*om*b.sq - 0.36*om*b.sqv)*dt;
+    b.sq += b.sqv*dt;
+    if(b.sq > 0.5){ b.sq = 0.5; if(b.sqv > 0) b.sqv = 0; }
+    if(b.sq < -0.35){ b.sq = -0.35; if(b.sqv < 0) b.sqv = 0; }
     if(b.spawnT < 1) b.spawnT += dt*6;
-    if(b.x - b.r < WALL){ b.x = WALL + b.r; b.vx = Math.abs(b.vx)*REST; }
-    if(b.x + b.r > W-WALL){ b.x = W-WALL - b.r; b.vx = -Math.abs(b.vx)*REST; }
+    if(b.x - b.r < WALL){
+      if(b.vx < -150) squishKick(b, -b.vx, Math.PI/2);
+      b.x = WALL + b.r; b.vx = Math.abs(b.vx)*REST;
+    }
+    if(b.x + b.r > W-WALL){
+      if(b.vx > 150) squishKick(b, b.vx, Math.PI/2);
+      b.x = W-WALL - b.r; b.vx = -Math.abs(b.vx)*REST;
+    }
     if(b.y + b.r > FLOOR){
+      if(b.vy > 150) squishKick(b, b.vy, 0);
       b.y = FLOOR - b.r;
       b.vy = -Math.abs(b.vy)*REST;
       if(Math.abs(b.vy) < 50) b.vy = 0; // rest threshold: kill micro-bounce
       b.vx *= 0.98;
+      b.va += (b.vx/b.r - b.va)*Math.min(1, 12*dt); // roll on the floor
       b.touched = true;
     }
   }
@@ -480,6 +501,12 @@ function step(dt){
           const jimp = -(1+e)*vn / (1/ma + 1/mb);
           a.vx -= jimp*nx/ma; a.vy -= jimp*ny/ma;
           b.vx += jimp*nx/mb; b.vy += jimp*ny/mb;
+          if(vn < -150){ // real impact: both squish along contact normal
+            const ang = Math.atan2(ny, nx) + Math.PI/2;
+            squishKick(a, -vn, ang); squishKick(b, -vn, ang);
+          }
+          const vt = rvx*-ny + rvy*nx; // tangential slip -> a bit of spin
+          a.va += vt*0.06/a.r; b.va += vt*0.06/b.r;
         }
       }
     }
@@ -493,6 +520,7 @@ function doMerge(a,b){
   const c = mkBody((a.x+b.x)/2, (a.y+b.y)/2, t);
   c.vx = (a.vx+b.vx)/2; c.vy = (a.vy+b.vy)/2 - 50;
   c.touched = true; c.spawnT = 0;
+  c.sqv = 5; c.sqa = Math.random()*3.14; // birth wobble
   bodies.push(c);
   // combo chain
   combo = comboT > 0 ? combo+1 : 1; comboT = 1.5;
@@ -949,6 +977,11 @@ function drawBody(b, ghost){
   const r = b.r * s;
   ctx.save();
   ctx.translate(b.x, b.y);
+  // squash & stretch (volume-preserving) then body rotation
+  const sq = Math.max(-0.35, Math.min(0.5, b.sq || 0)), sqa = b.sqa || 0;
+  ctx.rotate(sqa);
+  ctx.scale(1+sq, 1/(1+sq));
+  ctx.rotate((b.angle || 0) - sqa);
   if(ghost) ctx.globalAlpha = 0.55;
   const skin = S.skin;
   if(skin === 'fruit' || skin === 'emoji'){
